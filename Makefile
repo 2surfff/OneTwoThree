@@ -85,7 +85,12 @@ TEST_DB_URL := postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localh
 	@echo "Created .env from .env.example — review it (ports, AWS credentials)."
 
 .PHONY: up
-up: .env ## Build and start db, backend and frontend (http://localhost:$FRONTEND_PORT)
+up: start ## Start the stack, then rebuild backend/frontend whenever their files change (Ctrl+C stops watching)
+	@echo "Watching back/ and front/ for changes — Ctrl+C stops watching, containers keep running."
+	docker compose watch --no-up
+
+.PHONY: start
+start: .env ## Build and start db, backend and frontend in the background, without watching
 	docker compose up -d --build --wait
 	@echo "App: http://localhost:$(or $(FRONTEND_PORT),3000)   API docs: http://localhost:$(or $(FRONTEND_PORT),3000)/api/docs"
 
@@ -98,7 +103,7 @@ clean: ## Stop containers and delete the database volume
 	docker compose down -v --remove-orphans
 
 .PHONY: restart
-restart: down up ## Restart the stack
+restart: down start ## Restart the stack
 
 .PHONY: logs
 logs: ## Follow logs of all services (SERVICE=backend to narrow)

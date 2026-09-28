@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Clock, ExternalLink, MapPin, Trash2, Users } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  ExternalLink,
+  MapPin,
+  Pencil,
+  Trash2,
+  Users,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,27 +54,35 @@ function useNow(): Date {
   return now
 }
 
-function MeetingDetails({
-  meeting,
-  onDelete,
-}: {
-  meeting: Meeting
+interface MeetingActions {
+  onEdit: (meeting: Meeting) => void
   onDelete: (meeting: Meeting) => void
-}) {
+}
+
+function MeetingDetails({ meeting, onEdit, onDelete }: { meeting: Meeting } & MeetingActions) {
   const start = new Date(meeting.starts_at)
   return (
     <div className="space-y-3 text-sm">
       <div className="flex items-start justify-between gap-2">
         <h4 className="text-base leading-snug font-semibold">{meeting.title}</h4>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="-mt-1 -mr-2 shrink-0"
-          aria-label={`Delete ${meeting.title}`}
-          onClick={() => onDelete(meeting)}
-        >
-          <Trash2 className="text-destructive" />
-        </Button>
+        <div className="-mt-1 -mr-2 flex shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Edit ${meeting.title}`}
+            onClick={() => onEdit(meeting)}
+          >
+            <Pencil />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Delete ${meeting.title}`}
+            onClick={() => onDelete(meeting)}
+          >
+            <Trash2 className="text-destructive" />
+          </Button>
+        </div>
       </div>
       <p className="flex items-center gap-2 text-muted-foreground">
         <Clock className="size-4 shrink-0" />
@@ -103,18 +120,18 @@ function MeetingDetails({
   )
 }
 
-function MeetingBlock({
-  segment,
-  onDelete,
-}: {
-  segment: DaySegment
-  onDelete: (meeting: Meeting) => void
-}) {
+function MeetingBlock({ segment, onEdit, onDelete }: { segment: DaySegment } & MeetingActions) {
+  const [open, setOpen] = useState(false)
   const { meeting, startMin, endMin, column, columns } = segment
+  // Close the details before handing over to the edit or delete dialog.
+  const closeThen = (action: (meeting: Meeting) => void) => (m: Meeting) => {
+    setOpen(false)
+    action(m)
+  }
   const height = Math.max(((endMin - startMin) / 60) * HOUR_HEIGHT - 2, MIN_EVENT_HEIGHT)
   const compact = height < 40
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -138,20 +155,28 @@ function MeetingBlock({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-80" align="start">
-        <MeetingDetails meeting={meeting} onDelete={onDelete} />
+        <MeetingDetails
+          meeting={meeting}
+          onEdit={closeThen(onEdit)}
+          onDelete={closeThen(onDelete)}
+        />
       </PopoverContent>
     </Popover>
   )
 }
 
-interface MeetingsCalendarProps {
+interface MeetingsCalendarProps extends MeetingActions {
   meetings: Meeting[]
-  onDelete: (meeting: Meeting) => void
   /** Called with the start of the empty hour slot the user clicked. */
   onCreateAt: (start: Date) => void
 }
 
-export function MeetingsCalendar({ meetings, onDelete, onCreateAt }: MeetingsCalendarProps) {
+export function MeetingsCalendar({
+  meetings,
+  onEdit,
+  onDelete,
+  onCreateAt,
+}: MeetingsCalendarProps) {
   const [view, setView] = useState<CalendarView>(initialView)
   const [anchor, setAnchor] = useState(() => new Date())
   const now = useNow()
@@ -284,7 +309,12 @@ export function MeetingsCalendar({ meetings, onDelete, onCreateAt }: MeetingsCal
                   })}
 
                   {layoutDay(meetings, day).map((segment) => (
-                    <MeetingBlock key={segment.meeting.id} segment={segment} onDelete={onDelete} />
+                    <MeetingBlock
+                      key={segment.meeting.id}
+                      segment={segment}
+                      onEdit={onEdit}
+                      onDelete={onDelete}
+                    />
                   ))}
 
                   {today && (

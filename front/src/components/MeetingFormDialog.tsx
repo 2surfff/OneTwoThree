@@ -24,9 +24,10 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { useCreateMeeting } from "@/hooks/useMeetings"
+import { useCreateMeeting, useUpdateMeeting } from "@/hooks/useMeetings"
 import { ApiError } from "@/lib/api"
 import { toDateInput, toTimeInput } from "@/lib/calendar"
+import type { Meeting, MeetingCreate } from "@/types"
 
 const meetingSchema = z
   .object({
@@ -75,6 +76,20 @@ function emptyValues(start?: Date): MeetingFormValues {
   }
 }
 
+function meetingValues(meeting: Meeting): MeetingFormValues {
+  const start = new Date(meeting.starts_at)
+  return {
+    title: meeting.title,
+    description: meeting.description ?? "",
+    call_link: meeting.call_link ?? "",
+    place: meeting.place ?? "",
+    date: toDateInput(start),
+    start_time: toTimeInput(start),
+    end_time: toTimeInput(new Date(meeting.ends_at)),
+    participants: meeting.participants,
+  }
+}
+
 const API_FIELD_TO_FORM: Record<string, keyof MeetingFormValues> = {
   title: "title",
   description: "description",
@@ -90,31 +105,46 @@ interface MeetingFormDialogProps {
   onOpenChange: (open: boolean) => void
   /** Prefills the date and time, e.g. from a clicked calendar slot. */
   initialStart?: Date
+  /** Edits this meeting instead of creating a new one. */
+  meeting?: Meeting | null
 }
 
-export function MeetingFormDialog({ open, onOpenChange, initialStart }: MeetingFormDialogProps) {
+export function MeetingFormDialog({
+  open,
+  onOpenChange,
+  initialStart,
+  meeting,
+}: MeetingFormDialogProps) {
   const createMeeting = useCreateMeeting()
+  const updateMeeting = useUpdateMeeting()
+  const saving = createMeeting.isPending || updateMeeting.isPending
   const form = useForm<MeetingFormValues>({
     resolver: zodResolver(meetingSchema),
-    defaultValues: emptyValues(initialStart),
+    defaultValues: meeting ? meetingValues(meeting) : emptyValues(initialStart),
   })
 
   useEffect(() => {
-    if (open) form.reset(emptyValues(initialStart))
-  }, [open, initialStart, form])
+    if (open) form.reset(meeting ? meetingValues(meeting) : emptyValues(initialStart))
+  }, [open, initialStart, meeting, form])
 
   const onSubmit = async (values: MeetingFormValues) => {
+    const data: MeetingCreate = {
+      title: values.title,
+      description: values.description.trim() || null,
+      call_link: values.call_link || null,
+      place: values.place || null,
+      starts_at: new Date(`${values.date}T${values.start_time}`).toISOString(),
+      ends_at: new Date(`${values.date}T${values.end_time}`).toISOString(),
+      participant_ids: values.participants.map((p) => p.id),
+    }
     try {
-      await createMeeting.mutateAsync({
-        title: values.title,
-        description: values.description.trim() || null,
-        call_link: values.call_link || null,
-        place: values.place || null,
-        starts_at: new Date(`${values.date}T${values.start_time}`).toISOString(),
-        ends_at: new Date(`${values.date}T${values.end_time}`).toISOString(),
-        participant_ids: values.participants.map((p) => p.id),
-      })
-      toast.success("Meeting created")
+      if (meeting) {
+        await updateMeeting.mutateAsync({ id: meeting.id, data })
+        toast.success("Meeting updated")
+      } else {
+        await createMeeting.mutateAsync(data)
+        toast.success("Meeting created")
+      }
       onOpenChange(false)
     } catch (error) {
       if (error instanceof ApiError && error.status === 422 && error.issues.length > 0) {
@@ -124,7 +154,9 @@ export function MeetingFormDialog({ open, onOpenChange, initialStart }: MeetingF
         }
         return
       }
-      toast.error(error instanceof Error ? error.message : "Could not create meeting")
+      toast.error(
+        error instanceof Error ? error.message : `Could not ${meeting ? "save" : "create"} meeting`,
+      )
     }
   }
 
@@ -132,7 +164,7 @@ export function MeetingFormDialog({ open, onOpenChange, initialStart }: MeetingF
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New meeting</DialogTitle>
+          <DialogTitle>{meeting ? "Edit meeting" : "New meeting"}</DialogTitle>
           <DialogDescription>
             Add a call link, a place, or both so people know where to go.
           </DialogDescription>
@@ -257,8 +289,14 @@ export function MeetingFormDialog({ open, onOpenChange, initialStart }: MeetingF
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={createMeeting.isPending}>
-                {createMeeting.isPending ? "Creating…" : "Create meeting"}
+              <Button type="submit" disabled={saving}>
+                {meeting
+                  ? saving
+                    ? "Saving…"
+                    : "Save changes"
+                  : saving
+                    ? "Creating…"
+                    : "Create meeting"}
               </Button>
             </DialogFooter>
           </form>

@@ -25,6 +25,11 @@ def create_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
     return service.create_meeting(db, data)
 
 
+@router.put("/{meeting_id}", response_model=MeetingRead)
+def update_meeting(meeting_id: UUID, data: MeetingCreate, db: Session = Depends(get_db)):
+    return service.update_meeting(db, meeting_id, data)
+
+
 @router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_meeting(meeting_id: UUID, db: Session = Depends(get_db)):
     service.delete_meeting(db, meeting_id)

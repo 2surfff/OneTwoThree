@@ -24,26 +24,39 @@ def get_meeting(db: Session, meeting_id: UUID) -> Meeting:
     return meeting
 
 
-def create_meeting(db: Session, data: MeetingCreate) -> Meeting:
-    participant_ids = list(dict.fromkeys(data.participant_ids))
-    participants: list[Participant] = []
-    if participant_ids:
-        participants = list(db.scalars(select(Participant).where(Participant.id.in_(participant_ids))))
-        missing = set(participant_ids) - {p.id for p in participants}
-        if missing:
-            ids = ", ".join(sorted(str(m) for m in missing))
-            raise NotFoundError(f"Participants not found: {ids}")
+def _load_participants(db: Session, participant_ids: list[UUID]) -> list[Participant]:
+    participant_ids = list(dict.fromkeys(participant_ids))
+    if not participant_ids:
+        return []
+    participants = list(db.scalars(select(Participant).where(Participant.id.in_(participant_ids))))
+    missing = set(participant_ids) - {p.id for p in participants}
+    if missing:
+        ids = ", ".join(sorted(str(m) for m in missing))
+        raise NotFoundError(f"Participants not found: {ids}")
+    return participants
 
-    meeting = Meeting(
-        title=data.title,
-        description=data.description,
-        call_link=str(data.call_link) if data.call_link else None,
-        place=data.place,
-        starts_at=data.starts_at,
-        ends_at=data.ends_at,
-        participants=participants,
-    )
+
+def _apply(meeting: Meeting, data: MeetingCreate, participants: list[Participant]) -> None:
+    meeting.title = data.title
+    meeting.description = data.description
+    meeting.call_link = str(data.call_link) if data.call_link else None
+    meeting.place = data.place
+    meeting.starts_at = data.starts_at
+    meeting.ends_at = data.ends_at
+    meeting.participants = participants
+
+
+def create_meeting(db: Session, data: MeetingCreate) -> Meeting:
+    meeting = Meeting()
+    _apply(meeting, data, _load_participants(db, data.participant_ids))
     db.add(meeting)
+    db.commit()
+    return get_meeting(db, meeting.id)
+
+
+def update_meeting(db: Session, meeting_id: UUID, data: MeetingCreate) -> Meeting:
+    meeting = get_meeting(db, meeting_id)
+    _apply(meeting, data, _load_participants(db, data.participant_ids))
     db.commit()
     return get_meeting(db, meeting.id)
 

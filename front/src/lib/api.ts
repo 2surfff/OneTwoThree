@@ -56,6 +56,8 @@ export const api = {
   listMeetings: () => request<Meeting[]>("/meetings"),
   createMeeting: (data: MeetingCreate) =>
     request<Meeting>("/meetings", { method: "POST", body: JSON.stringify(data) }),
+  updateMeeting: ({ id, data }: { id: string; data: MeetingCreate }) =>
+    request<Meeting>(`/meetings/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteMeeting: (id: string) => request<void>(`/meetings/${id}`, { method: "DELETE" }),
 
   listParticipants: (q = "") =>

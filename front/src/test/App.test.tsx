@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 
@@ -56,6 +56,41 @@ describe("App", () => {
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByLabelText("Start")).toHaveValue("14:00")
     expect(within(dialog).getByLabelText("End")).toHaveValue("15:00")
+  })
+
+  it("edits a meeting from its details", async () => {
+    const fetchMock = mockFetch((_url, init) =>
+      init?.method === "PUT"
+        ? { body: { ...sampleMeeting, title: "Sprint review" } }
+        : { body: [sampleMeeting] },
+    )
+    renderWithQuery(<App />)
+
+    await userEvent.click(await screen.findByRole("button", { name: /Sprint planning/ }))
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Sprint planning" }))
+
+    const dialog = await screen.findByRole("dialog", { name: "Edit meeting" })
+    const title = within(dialog).getByLabelText("Title")
+    expect(title).toHaveValue("Sprint planning")
+    expect(within(dialog).getByLabelText("Start")).toHaveValue("10:00")
+    expect(within(dialog).getByLabelText("Place")).toHaveValue("Room 204")
+
+    await userEvent.clear(title)
+    await userEvent.type(title, "Sprint review")
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }))
+
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")
+    expect(put?.[0]).toBe(`/api/meetings/${sampleMeeting.id}`)
+    expect(JSON.parse(String(put?.[1]?.body))).toEqual({
+      title: "Sprint review",
+      description: sampleMeeting.description,
+      call_link: sampleMeeting.call_link,
+      place: sampleMeeting.place,
+      starts_at: sampleMeeting.starts_at,
+      ends_at: sampleMeeting.ends_at,
+      participant_ids: sampleMeeting.participants.map((p) => p.id),
+    })
+    await waitFor(() => expect(dialog).not.toBeInTheDocument())
   })
 
   it("asks for confirmation before deleting", async () => {

@@ -18,10 +18,17 @@ export default function App() {
   const deleteMeeting = useDeleteMeeting()
   const [formOpen, setFormOpen] = useState(false)
   const [formStart, setFormStart] = useState<Date | undefined>()
+  const [editing, setEditing] = useState<Meeting | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Meeting | null>(null)
 
   const openForm = (start?: Date) => {
+    setEditing(null)
     setFormStart(start)
+    setFormOpen(true)
+  }
+
+  const openEdit = (meeting: Meeting) => {
+    setEditing(meeting)
     setFormOpen(true)
   }
 
@@ -37,27 +44,10 @@ export default function App() {
     <div className="flex min-h-screen flex-col">
       <SiteHeader onNewMeeting={() => openForm()} />
 
-      <section
-        aria-hidden
-        className="relative h-40 overflow-hidden bg-gradient-to-br from-brand-dark via-brand to-[#a4302a] sm:h-56"
-      >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.18),transparent_45%),radial-gradient(circle_at_10%_90%,rgba(0,0,0,0.25),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.04)_0_2px,transparent_2px_14px)]" />
-      </section>
-
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-12 sm:px-6">
-        <div className="mb-10 text-center">
-          <h1 className="text-2xl font-semibold text-foreground sm:text-[28px]">
-            Welcome to the meetings scheduler
-          </h1>
-          <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-            Keep track of meetings, their participants, call links and places.
-          </p>
-        </div>
-
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
         <section className="rounded-sm border bg-card p-4 sm:p-6">
           <div className="mb-5 flex items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold text-foreground">Meetings</h2>
+            <h1 className="text-lg font-semibold text-foreground">Meetings</h1>
             <Button onClick={() => openForm()} className="px-5">
               <Plus /> New meeting
             </Button>
@@ -82,6 +72,7 @@ export default function App() {
           ) : (
             <MeetingsCalendar
               meetings={meetings}
+              onEdit={openEdit}
               onDelete={setPendingDelete}
               onCreateAt={openForm}
             />
@@ -92,7 +83,12 @@ export default function App() {
       <SiteFooter />
       <BackToTop />
 
-      <MeetingFormDialog open={formOpen} onOpenChange={setFormOpen} initialStart={formStart} />
+      <MeetingFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        initialStart={formStart}
+        meeting={editing}
+      />
       <DeleteMeetingDialog
         meeting={pendingDelete}
         onCancel={() => setPendingDelete(null)}

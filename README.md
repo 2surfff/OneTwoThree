@@ -2,12 +2,14 @@
 
 Monorepo with a FastAPI backend (`back/`), a React + shadcn/ui frontend (`front/`) and PostgreSQL,
 all started with Docker Compose. See meetings in a week or day calendar, add them (title, time,
-description, participants, call link, place) and remove them.
+description, participants, call link, place), edit and remove them.
 
 ## Run everything
 
 ```bash
-make up          # = cp .env.example .env (first time) + docker compose up --build --wait
+make up          # = cp .env.example .env (first time) + docker compose up --build --wait, then
+                 #   docker compose watch: rebuilds backend/frontend when their files change
+make start       # the same without watching (returns once the stack is healthy)
 make help        # all targets: logs, test, lint, format, clean, aws-*
 ```
 
@@ -51,6 +53,7 @@ infra/            # CloudFormation: backend-ecr, backend (Lambda + Aurora), fron
 | GET | `/api/meetings` | List meetings with participants, by start time |
 | GET | `/api/meetings/{id}` | One meeting |
 | POST | `/api/meetings` | Create a meeting |
+| PUT | `/api/meetings/{id}` | Replace a meeting (same body as POST) |
 | DELETE | `/api/meetings/{id}` | Delete a meeting |
 | GET | `/api/participants?q=` | List/search participants |
 | POST | `/api/participants` | Create a participant (409 on duplicate email) |

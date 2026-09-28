@@ -27,12 +27,20 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s
       retries: 5
+    # `docker compose watch` (used by `make up`) rebuilds the image when a file changes;
+    # files in .dockerignore are skipped.
+    develop:
+      watch:
+        - { action: rebuild, path: ./back }
 
   frontend:
     build: ./front
     ports: ["${FRONTEND_PORT:-3000}:80"]
     depends_on:
       backend: { condition: service_healthy }
+    develop:
+      watch:
+        - { action: rebuild, path: ./front, ignore: [src/test/] }
 
 volumes:
   pgdata:

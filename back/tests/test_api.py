@@ -50,6 +50,40 @@ def test_create_list_and_delete_meeting(client: TestClient):
     assert client.get(f"/api/meetings/{meeting['id']}").status_code == 404
 
 
+def test_update_meeting(client: TestClient):
+    anna = create_participant(client, "Anna", "anna@example.com")
+    oleh = create_participant(client, "Oleh", "oleh@example.com")
+    meeting = client.post("/api/meetings", json=meeting_payload(participant_ids=[anna["id"]])).json()
+
+    response = client.put(
+        f"/api/meetings/{meeting['id']}",
+        json=meeting_payload(
+            title="Sprint review",
+            call_link=None,
+            starts_at="2026-09-29T14:00:00Z",
+            ends_at="2026-09-29T15:30:00Z",
+            participant_ids=[oleh["id"]],
+        ),
+    )
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["id"] == meeting["id"]
+    assert updated["title"] == "Sprint review"
+    assert updated["call_link"] is None
+    assert datetime.fromisoformat(updated["ends_at"]) == datetime.fromisoformat("2026-09-29T15:30:00Z")
+    assert [p["name"] for p in updated["participants"]] == ["Oleh"]
+    assert client.get(f"/api/meetings/{meeting['id']}").json() == updated
+
+
+def test_update_validates_and_checks_existence(client: TestClient):
+    meeting = client.post("/api/meetings", json=meeting_payload()).json()
+    assert client.put(f"/api/meetings/{meeting['id']}", json=meeting_payload(title="")).status_code == 422
+    assert client.put(f"/api/meetings/{uuid.uuid4()}", json=meeting_payload()).status_code == 404
+    missing = str(uuid.uuid4())
+    response = client.put(f"/api/meetings/{meeting['id']}", json=meeting_payload(participant_ids=[missing]))
+    assert response.status_code == 404
+
+
 def test_meetings_are_listed_by_start_time(client: TestClient):
     for title, start, end in (
         ("Retro", "2026-09-30T15:00:00Z", "2026-09-30T16:00:00Z"),
