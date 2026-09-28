@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   ChevronLeft,
   ChevronRight,
@@ -32,7 +32,8 @@ import type { Meeting } from "@/types"
 
 const HOUR_HEIGHT = 48
 const MIN_EVENT_HEIGHT = 22
-const FIRST_VISIBLE_HOUR = 7
+/** The grid opens scrolled to 07:30; earlier hours stay reachable by scrolling up. */
+const FIRST_VISIBLE_HOUR = 7.5
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour)
 const VIEWS: { value: CalendarView; label: string }[] = [
   { value: "week", label: "Week" },
@@ -184,13 +185,14 @@ export function MeetingsCalendar({
   const days = visibleDays(view, anchor)
   const gridColumns = { gridTemplateColumns: `3.5rem repeat(${days.length}, minmax(0, 1fr))` }
 
-  useEffect(() => {
+  // Before paint, so the grid never flashes at 00:00.
+  useLayoutEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = FIRST_VISIBLE_HOUR * HOUR_HEIGHT
   }, [view])
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={() => setAnchor(new Date())}>
           Today
         </Button>
@@ -237,7 +239,11 @@ export function MeetingsCalendar({
         </div>
       </div>
 
-      <div ref={scrollRef} className="max-h-[640px] overflow-auto rounded-sm border">
+      {/* Fills the window below the header and toolbar, so the page itself barely scrolls. */}
+      <div
+        ref={scrollRef}
+        className="h-[calc(100dvh-10.5rem)] min-h-[420px] overflow-auto rounded-sm border"
+      >
         <div className={cn(view === "week" && "min-w-[720px]")}>
           <div className="sticky top-0 z-20 grid border-b bg-card" style={gridColumns}>
             <div />
@@ -246,7 +252,7 @@ export function MeetingsCalendar({
               return (
                 <div
                   key={day.toISOString()}
-                  className="flex flex-col items-center border-l py-2"
+                  className="flex items-center justify-center gap-1.5 border-l py-1.5"
                   aria-current={today ? "date" : undefined}
                 >
                   <span
@@ -259,7 +265,7 @@ export function MeetingsCalendar({
                   </span>
                   <span
                     className={cn(
-                      "mt-0.5 flex size-9 items-center justify-center rounded-full text-lg",
+                      "flex size-7 items-center justify-center rounded-full text-sm font-medium",
                       today && "bg-brand font-semibold text-white",
                     )}
                   >

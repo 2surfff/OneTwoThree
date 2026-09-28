@@ -31,8 +31,9 @@ BACKEND_STACK     := $(PROJECT)-backend
 BACKEND_FUNCTION  := $(PROJECT)-backend
 BACKEND_PARAMS    := infra/backend.params.env
 FRONTEND_STACK    := $(PROJECT)-frontend
+COGNITO_STACK     := $(PROJECT)-cognito
 # Every resource gets this tag (in the templates and as a stack tag).
-STACK_TAGS        := =$(PROJECT)
+STACK_TAGS        := PROJECT_NAME=$(PROJECT)
 
 # CloudFront flat-rate Free plan ($0/month); PAY_AS_YOU_GO if the account can't subscribe (AWS Free Tier
 # accounts, or 3 free plans already in use).
@@ -59,9 +60,15 @@ ECR_REGISTRY = $(firstword $(subst /, ,$(ECR_URI)))
 BACKEND_PARAMS_ARGS = $(shell [ -f $(BACKEND_PARAMS) ] && grep -v -e '^[[:space:]]*$(HASH)' -e '^[[:space:]]*$$' $(BACKEND_PARAMS))
 backend_output  = $(call stack_output,$(BACKEND_STACK),$(1))
 frontend_output = $(call stack_output,$(FRONTEND_STACK),$(1))
+cognito_output  = $(call stack_output,$(COGNITO_STACK),$(1))
 API_URL          = $(call backend_output,ApiUrl)
 FRONTEND_ORIGINS = $(call frontend_output,SiteOrigins)
 CORS_ORIGINS_AWS = $(CORS_LOCAL)$(if $(FRONTEND_ORIGINS),$(COMMA)$(FRONTEND_ORIGINS))
+# Cognito may redirect back (Google sign-in) to every origin the API allows.
+COGNITO_CALLBACK_URLS = $(subst $(COMMA),/auth/callback$(COMMA),$(CORS_ORIGINS_AWS))/auth/callback
+COGNITO_LOGOUT_URLS   = $(subst $(COMMA),/$(COMMA),$(CORS_ORIGINS_AWS))/
+COGNITO_POOL_ID   = $(call cognito_output,UserPoolId)
+COGNITO_CLIENT    = $(call cognito_output,UserPoolClientId)
 FRONTEND_CERT_ARN = $(if $(FRONTEND_DOMAIN),$(shell $(LOAD_ENV) $(CERT_SH) arn $(FRONTEND_DOMAIN) 2>/dev/null))
 FRONTEND_ZONE_ID  = $(shell $(LOAD_ENV) $(CERT_SH) zone-id $(FRONTEND_DOMAIN) 2>/dev/null)
 # The custom domain is attached once its certificate is issued; until then only the CloudFront domain serves.
@@ -174,10 +181,15 @@ aws-backend-push: aws-backend-login ## Build the Lambda image for linux/$(ARCH) 
 aws-backend-stack: ## Create/update the backend stack (VPC, Aurora, Lambda) with image tag $(TAG); KEEP_IMAGE=1 keeps the current image
 	$(call clear_failed_stack,$(BACKEND_STACK))
 	@test -n "$(ECR_URI)" || { echo "ECR repository not found: run \`make aws-backend-ecr\` first (and check AWS credentials in .env)"; exit 1; }
+	@test -n "$(COGNITO_POOL_ID)" || { echo "Cognito not deployed: run \`make aws-cognito-deploy\` first"; exit 1; }
+	@# The function has no internet route, so the pool's signing keys are passed in with the stack.
+	jwks=$$(curl -fsS "$(call cognito_output,Issuer)/.well-known/jwks.json") && \
 	aws cloudformation deploy --stack-name $(BACKEND_STACK) --template-file infra/backend.yaml \
 	  --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset --tags $(STACK_TAGS) \
 	  --parameter-overrides ProjectName=$(PROJECT) $(if $(KEEP_IMAGE),,ImageUri=$(ECR_URI):$(TAG)) \
-	    Architecture=$(LAMBDA_ARCH) "CorsOrigins=$(CORS_ORIGINS_AWS)" $(BACKEND_PARAMS_ARGS)
+	    Architecture=$(LAMBDA_ARCH) "CorsOrigins=$(CORS_ORIGINS_AWS)" \
+	    CognitoUserPoolId=$(COGNITO_POOL_ID) CognitoClientId=$(COGNITO_CLIENT) "CognitoJwks=$$jwks" \
+	    $(BACKEND_PARAMS_ARGS)
 
 .PHONY: aws-backend-migrate
 aws-backend-migrate: ## Run Alembic migrations (and seeding) inside the Lambda
@@ -219,7 +231,7 @@ aws-backend-destroy: aws-check ## Delete backend stacks (a final Aurora snapshot
 ##@ AWS frontend (S3 + CloudFront on the flat-rate Free plan, built with the backend URL)
 
 .PHONY: aws-frontend-deploy
-aws-frontend-deploy: aws-check aws-frontend-stack aws-frontend-publish aws-frontend-cors ## Deploy frontend: stack, build with the API URL, upload, allow its origin in the API
+aws-frontend-deploy: aws-check aws-frontend-stack aws-frontend-publish aws-frontend-cors ## Deploy frontend: stack, build with the API URL, upload, allow its origin in the API and Cognito
 	@echo
 	@echo "Site: $(call frontend_output,SiteUrl)"
 
@@ -236,8 +248,12 @@ aws-frontend-publish: ## Build the SPA with VITE_API_URL=<function URL>, upload 
 	@api="$(API_URL)"; bucket="$(call frontend_output,BucketName)"; dist="$(call frontend_output,DistributionId)"; \
 	[ -n "$$api" ] || { echo "Backend not deployed: run \`make aws-backend-deploy\` first"; exit 1; }; \
 	[ -n "$$bucket" ] || { echo "Frontend stack not found: run \`make aws-frontend-stack\` first"; exit 1; }; \
+	[ -n "$(COGNITO_POOL_ID)" ] || { echo "Cognito not deployed: run \`make aws-cognito-deploy\` first"; exit 1; }; \
 	echo "Building frontend with VITE_API_URL=$$api" && \
-	(cd front && npm ci --no-audit --no-fund && VITE_API_URL="$$api" npm run build) && \
+	(cd front && npm ci --no-audit --no-fund && VITE_API_URL="$$api" \
+	  VITE_COGNITO_REGION=$(AWS_REGION) VITE_COGNITO_USER_POOL_ID=$(COGNITO_POOL_ID) \
+	  VITE_COGNITO_CLIENT_ID=$(COGNITO_CLIENT) VITE_COGNITO_DOMAIN=$(call cognito_output,HostedUiDomain) \
+	  VITE_COGNITO_GOOGLE=$(call cognito_output,GoogleEnabled) npm run build) && \
 	aws s3 sync front/dist "s3://$$bucket" --delete --exclude index.html \
 	  --cache-control "public,max-age=31536000,immutable" && \
 	aws s3 cp front/dist/index.html "s3://$$bucket/index.html" --cache-control "no-cache" && \
@@ -245,8 +261,9 @@ aws-frontend-publish: ## Build the SPA with VITE_API_URL=<function URL>, upload 
 	  --query "Invalidation.Status" --output text
 
 .PHONY: aws-frontend-cors
-aws-frontend-cors: ## Allow the frontend's origins in the backend's CORS settings (keeps the current image)
+aws-frontend-cors: ## Allow the frontend's origins in the backend's CORS settings and as Cognito redirect URLs (keeps the current image)
 	@$(MAKE) --no-print-directory aws-backend-stack KEEP_IMAGE=1
+	@$(MAKE) --no-print-directory aws-cognito-stack
 
 .PHONY: aws-frontend-outputs
 aws-frontend-outputs: ## Show frontend stack outputs (site URL, bucket, distribution)
@@ -293,13 +310,54 @@ aws-frontend-https-check: ## Check that https://FRONTEND_DOMAIN answers
 	@echo "DNS: $$(dig +short $(FRONTEND_DOMAIN) | tr '\n' ' ')"
 	curl -fsS -o /dev/null -w "%{http_code} %{url_effective}\n" https://$(FRONTEND_DOMAIN)/
 
+##@ AWS auth (Cognito user pool; Google sign-in once GOOGLE_CLIENT_ID/SECRET are set in .env)
+
+.PHONY: aws-cognito-deploy
+aws-cognito-deploy: aws-check aws-cognito-stack aws-cognito-env ## Deploy Cognito, then print the lines to add to .env
+	@echo "Then: \`make up\` for local sign-in; on AWS \`make aws-deploy\` (or aws-backend-stack KEEP_IMAGE=1 + aws-frontend-publish)."
+
+.PHONY: aws-cognito-stack
+aws-cognito-stack: ## Create/update the Cognito stack (redirect URLs = local origins + the site's)
+	$(call clear_failed_stack,$(COGNITO_STACK))
+	@# Not echoed: the command line would show the Google client secret.
+	@echo "Deploying $(COGNITO_STACK) (Google sign-in: $(if $(GOOGLE_CLIENT_ID),on,off))"
+	@aws cloudformation deploy --stack-name $(COGNITO_STACK) --template-file infra/cognito.yaml \
+	  --no-fail-on-empty-changeset --tags $(STACK_TAGS) \
+	  --parameter-overrides ProjectName=$(PROJECT) "CallbackUrls=$(COGNITO_CALLBACK_URLS)" \
+	    "LogoutUrls=$(COGNITO_LOGOUT_URLS)" "GoogleClientId=$(GOOGLE_CLIENT_ID)" \
+	    "GoogleClientSecret=$(GOOGLE_CLIENT_SECRET)"
+
+.PHONY: aws-cognito-env
+aws-cognito-env: ## Print the .env lines for the deployed user pool (replace the empty COGNITO_* ones)
+	@test -n "$(COGNITO_POOL_ID)" || { echo "Cognito stack not found: run \`make aws-cognito-deploy\` first"; exit 1; }
+	@echo
+	@echo "Add to .env (replacing the empty COGNITO_* lines):"
+	@echo
+	@echo "COGNITO_REGION=$(AWS_REGION)"
+	@echo "COGNITO_USER_POOL_ID=$(COGNITO_POOL_ID)"
+	@echo "COGNITO_CLIENT_ID=$(COGNITO_CLIENT)"
+	@echo "COGNITO_DOMAIN=$(call cognito_output,HostedUiDomain)"
+	@echo "COGNITO_GOOGLE_ENABLED=$(call cognito_output,GoogleEnabled)"
+	@echo
+
+.PHONY: aws-cognito-outputs
+aws-cognito-outputs: ## Show Cognito stack outputs (pool, client, Hosted UI domain)
+	@aws cloudformation describe-stacks --stack-name $(COGNITO_STACK) \
+	  --query "Stacks[0].Outputs[].[OutputKey, OutputValue]" --output table
+
+.PHONY: aws-cognito-destroy
+aws-cognito-destroy: aws-check ## Delete the Cognito stack — ALL user accounts are deleted with it
+	@read -p "Delete stack $(COGNITO_STACK) and every user account in it? [y/N] " ok && [ "$$ok" = y ]
+	aws cloudformation delete-stack --stack-name $(COGNITO_STACK)
+	aws cloudformation wait stack-delete-complete --stack-name $(COGNITO_STACK)
+
 ##@ AWS (all parts)
 
 .PHONY: aws-deploy
-aws-deploy: aws-backend-deploy aws-frontend-deploy ## Deploy everything: backend first, then the frontend built with its URL
+aws-deploy: aws-cognito-deploy aws-backend-deploy aws-frontend-deploy ## Deploy everything: Cognito, backend, then the frontend built with their IDs and URL
 
 .PHONY: aws-destroy
-aws-destroy: aws-frontend-destroy aws-backend-destroy ## Delete everything on AWS
+aws-destroy: aws-frontend-destroy aws-backend-destroy aws-cognito-destroy ## Delete everything on AWS (each stack asks first)
 
 ##@ Help
 

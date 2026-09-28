@@ -44,6 +44,19 @@ Parameters:
     Type: Number
     Default: 7
 
+  # --- Auth (from the Cognito stack; the Makefile passes them) ---
+  CognitoUserPoolId:
+    Type: String
+    Description: User pool whose ID tokens the API accepts.
+  CognitoClientId:
+    Type: String
+    Description: App client the tokens must be issued to (their aud claim).
+  CognitoJwks:
+    Type: String
+    Description: >-
+      The pool's public signing keys (JWKS JSON). Passed in because the function has no internet
+      route to download them; Cognito does not rotate user pool keys.
+
   # --- Database (Aurora Serverless v2, PostgreSQL) ---
   DbEngineVersion:
     Type: String
@@ -219,7 +232,8 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${ProjectName}-backend
       RetentionInDays: !Ref LogRetentionDays
 
-  # Logs and the network interfaces Lambda needs to join the VPC; the app needs nothing else.
+  # Logs and the network interfaces Lambda needs to join the VPC; the app needs nothing else
+  # (tokens are verified with the JWKS from the environment, without calling Cognito).
   BackendRole:
     Type: AWS::IAM::Role
     Properties:
@@ -267,6 +281,10 @@ Resources:
           DB_NULL_POOL: "true"
           CORS_ORIGINS: !Ref CorsOrigins
           SEED: !Ref Seed
+          COGNITO_REGION: !Ref AWS::Region
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          COGNITO_JWKS: !Ref CognitoJwks
 
   # Public HTTPS endpoint of the function; this is the backend URL the frontend is built with.
   BackendFunctionUrl:

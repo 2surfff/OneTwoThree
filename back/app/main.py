@@ -1,10 +1,17 @@
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import health, meetings, participants
+from app.routers import health, me, meetings, participants
 from app.services.errors import ConflictError, NotFoundError
+
+if not settings.auth_enabled:
+    logging.getLogger("uvicorn.error").warning(
+        "COGNITO_USER_POOL_ID is not set: auth is disabled and every request acts as the local user"
+    )
 
 app = FastAPI(
     title="Meetings API",
@@ -33,5 +40,6 @@ def handle_conflict(_: Request, exc: ConflictError) -> JSONResponse:
 
 
 app.include_router(health.router, prefix="/api")
+app.include_router(me.router, prefix="/api")
 app.include_router(meetings.router, prefix="/api")
 app.include_router(participants.router, prefix="/api")

@@ -1,16 +1,34 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 
 import App from "@/App"
 import { formatLongDay, layoutDay } from "@/lib/calendar"
 import { parseNewParticipant } from "@/lib/participants"
-import { mockFetch, renderWithQuery, sampleMeeting, todayAt } from "@/test/utils"
+import { mockFetch, renderWithQuery, sampleMeeting, signInForTest, todayAt } from "@/test/utils"
 
-describe("App", () => {
+describe("Home page", () => {
+  beforeEach(() => signInForTest())
+
+  it("sends signed-out users to sign in", async () => {
+    localStorage.clear()
+    mockFetch(() => ({ body: [] }))
+    renderWithQuery(<App />, "/home")
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument()
+  })
+
+  it("shows the signed-in user and signs out", async () => {
+    mockFetch(() => ({ body: [] }))
+    renderWithQuery(<App />, "/home")
+    expect(await screen.findByText("Anna Kovalenko")).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }))
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument()
+    expect(localStorage.getItem("meetings.session")).toBeNull()
+  })
+
   it("shows meetings in the week calendar with details on click", async () => {
     mockFetch(() => ({ body: [sampleMeeting] }))
-    renderWithQuery(<App />)
+    renderWithQuery(<App />, "/home")
 
     const today = await screen.findByRole("region", { name: formatLongDay(new Date()) })
     const block = within(today).getByRole("button", { name: /Sprint planning/ })
@@ -28,7 +46,7 @@ describe("App", () => {
 
   it("switches between week and day views", async () => {
     mockFetch(() => ({ body: [sampleMeeting] }))
-    renderWithQuery(<App />)
+    renderWithQuery(<App />, "/home")
 
     await screen.findByRole("region", { name: formatLongDay(new Date()) })
     await userEvent.click(screen.getByRole("button", { name: "Day" }))
@@ -48,7 +66,7 @@ describe("App", () => {
 
   it("opens the form at the clicked time slot", async () => {
     mockFetch(() => ({ body: [] }))
-    renderWithQuery(<App />)
+    renderWithQuery(<App />, "/home")
 
     const label = `New meeting on ${formatLongDay(new Date())} at 14:00`
     await userEvent.click(await screen.findByRole("button", { name: label }))
@@ -64,7 +82,7 @@ describe("App", () => {
         ? { body: { ...sampleMeeting, title: "Sprint review" } }
         : { body: [sampleMeeting] },
     )
-    renderWithQuery(<App />)
+    renderWithQuery(<App />, "/home")
 
     await userEvent.click(await screen.findByRole("button", { name: /Sprint planning/ }))
     await userEvent.click(await screen.findByRole("button", { name: "Edit Sprint planning" }))
@@ -97,7 +115,7 @@ describe("App", () => {
     const fetchMock = mockFetch((_url, init) =>
       init?.method === "DELETE" ? { status: 204 } : { body: [sampleMeeting] },
     )
-    renderWithQuery(<App />)
+    renderWithQuery(<App />, "/home")
 
     await userEvent.click(await screen.findByRole("button", { name: /Sprint planning/ }))
     await userEvent.click(await screen.findByRole("button", { name: "Delete Sprint planning" }))

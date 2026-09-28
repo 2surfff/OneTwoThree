@@ -4,6 +4,12 @@ export interface Participant {
   email: string
 }
 
+export interface User {
+  id: string
+  email: string
+  name: string | null
+}
+
 export interface Meeting {
   id: string
   title: string
@@ -12,6 +18,7 @@ export interface Meeting {
   place: string | null
   starts_at: string
   ends_at: string
+  owner_id: string | null
   participants: Participant[]
   created_at: string
 }

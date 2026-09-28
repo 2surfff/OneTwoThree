@@ -15,6 +15,23 @@ meeting_participants = Table(
 )
 
 
+class User(Base):
+    """An account from Cognito, keyed by its `sub`; holds what the app knows beyond the token."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()")
+    )
+    cognito_sub: Mapped[str] = mapped_column(String(128), unique=True)
+    email: Mapped[str] = mapped_column(String(254))
+    name: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Meeting(Base):
     __tablename__ = "meetings"
 
@@ -27,6 +44,11 @@ class Meeting(Base):
     place: Mapped[str | None] = mapped_column(String(255))
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Each meeting belongs to one user and only they see it. Null only for meetings created
+    # before accounts existed; nobody sees those.
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

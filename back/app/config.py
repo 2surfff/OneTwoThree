@@ -20,6 +20,15 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     seed: bool = False
 
+    # Cognito user pool whose ID tokens the API accepts (`make aws-cognito-deploy` fills these in).
+    # Empty pool ID = auth disabled: every request acts as one local user (local development, tests).
+    cognito_region: str = "us-east-1"
+    cognito_user_pool_id: str = ""
+    cognito_client_id: str = ""
+    # The pool's JWKS as JSON. Set on AWS, where the Lambda has no internet route to fetch it;
+    # when empty it is downloaded from the issuer on first use.
+    cognito_jwks: str = ""
+
     @property
     def sqlalchemy_url(self) -> URL:
         if self.database_url:
@@ -32,6 +41,14 @@ class Settings(BaseSettings):
             port=self.db_port,
             database=self.db_name,
         )
+
+    @property
+    def auth_enabled(self) -> bool:
+        return bool(self.cognito_user_pool_id)
+
+    @property
+    def cognito_issuer(self) -> str:
+        return f"https://cognito-idp.{self.cognito_region}.amazonaws.com/{self.cognito_user_pool_id}"
 
     @property
     def cors_origin_list(self) -> list[str]:

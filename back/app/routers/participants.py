@@ -3,11 +3,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user
 from app.db import get_db
 from app.schemas import ParticipantCreate, ParticipantRead
 from app.services import participants as service
 
-router = APIRouter(prefix="/participants", tags=["participants"])
+# The participant directory is shared by all users, but only signed-in users may use it.
+router = APIRouter(prefix="/participants", tags=["participants"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("", response_model=list[ParticipantRead])

@@ -4,20 +4,30 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Meeting, Participant
+from app.models import Meeting, Participant, User
 from app.schemas import MeetingCreate
 from app.services.errors import NotFoundError
 
+# Meetings are personal: every query is scoped to the owner's user ID.
 
-def list_meetings(db: Session) -> Sequence[Meeting]:
+
+def list_meetings(db: Session, user: User) -> Sequence[Meeting]:
     query = (
-        select(Meeting).options(selectinload(Meeting.participants)).order_by(Meeting.starts_at, Meeting.id)
+        select(Meeting)
+        .options(selectinload(Meeting.participants))
+        .where(Meeting.owner_id == user.id)
+        .order_by(Meeting.starts_at, Meeting.id)
     )
     return db.scalars(query).all()
 
 
-def get_meeting(db: Session, meeting_id: UUID) -> Meeting:
-    query = select(Meeting).options(selectinload(Meeting.participants)).where(Meeting.id == meeting_id)
+def get_meeting(db: Session, meeting_id: UUID, user: User) -> Meeting:
+    """Other users' meetings are reported as missing, so their IDs reveal nothing."""
+    query = (
+        select(Meeting)
+        .options(selectinload(Meeting.participants))
+        .where(Meeting.id == meeting_id, Meeting.owner_id == user.id)
+    )
     meeting = db.scalar(query)
     if meeting is None:
         raise NotFoundError(f"Meeting {meeting_id} not found")
@@ -46,24 +56,21 @@ def _apply(meeting: Meeting, data: MeetingCreate, participants: list[Participant
     meeting.participants = participants
 
 
-def create_meeting(db: Session, data: MeetingCreate) -> Meeting:
-    meeting = Meeting()
+def create_meeting(db: Session, data: MeetingCreate, user: User) -> Meeting:
+    meeting = Meeting(owner_id=user.id)
     _apply(meeting, data, _load_participants(db, data.participant_ids))
     db.add(meeting)
     db.commit()
-    return get_meeting(db, meeting.id)
+    return get_meeting(db, meeting.id, user)
 
 
-def update_meeting(db: Session, meeting_id: UUID, data: MeetingCreate) -> Meeting:
-    meeting = get_meeting(db, meeting_id)
+def update_meeting(db: Session, meeting_id: UUID, data: MeetingCreate, user: User) -> Meeting:
+    meeting = get_meeting(db, meeting_id, user)
     _apply(meeting, data, _load_participants(db, data.participant_ids))
     db.commit()
-    return get_meeting(db, meeting.id)
+    return get_meeting(db, meeting.id, user)
 
 
-def delete_meeting(db: Session, meeting_id: UUID) -> None:
-    meeting = db.get(Meeting, meeting_id)
-    if meeting is None:
-        raise NotFoundError(f"Meeting {meeting_id} not found")
-    db.delete(meeting)
+def delete_meeting(db: Session, meeting_id: UUID, user: User) -> None:
+    db.delete(get_meeting(db, meeting_id, user))
     db.commit()

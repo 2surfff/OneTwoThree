@@ -12,6 +12,7 @@ dependencies = [
     "pydantic[email]>=2.7",
     "pydantic-settings>=2.3",
     "mangum>=0.19",
+    "pyjwt[crypto]>=2.9",
 ]
 
 [dependency-groups]

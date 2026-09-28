@@ -39,6 +39,25 @@ class ParticipantRead(BaseModel):
     email: str
 
 
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: str
+    name: str | None
+
+
+class UserUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str | None = Field(default=None, max_length=120)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def blank_to_none(cls, value: object) -> object:
+        return _blank_to_none(value)
+
+
 class MeetingCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -78,5 +97,6 @@ class MeetingRead(BaseModel):
     place: str | None
     starts_at: datetime
     ends_at: datetime
+    owner_id: UUID | None
     participants: list[ParticipantRead]
     created_at: datetime
