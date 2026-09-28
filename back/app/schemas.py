@@ -1,7 +1,16 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_validator,
+)
 
 
 def _blank_to_none(value: object) -> object:
@@ -37,6 +46,8 @@ class MeetingCreate(BaseModel):
     description: str | None = Field(default=None, max_length=5000)
     call_link: HttpUrl | None = None
     place: str | None = Field(default=None, max_length=255)
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
     participant_ids: list[UUID] = []
 
     @field_validator("description", "call_link", "place", mode="before")
@@ -50,6 +61,12 @@ class MeetingCreate(BaseModel):
             raise ValueError("Provide a call link, a place, or both")
         return self
 
+    @model_validator(mode="after")
+    def ends_after_start(self) -> "MeetingCreate":
+        if self.ends_at <= self.starts_at:
+            raise ValueError("The meeting must end after it starts")
+        return self
+
 
 class MeetingRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -59,5 +76,7 @@ class MeetingRead(BaseModel):
     description: str | None
     call_link: str | None
     place: str | None
+    starts_at: datetime
+    ends_at: datetime
     participants: list[ParticipantRead]
     created_at: datetime

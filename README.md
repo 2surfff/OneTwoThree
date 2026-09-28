@@ -1,8 +1,8 @@
 # Meetings App
 
 Monorepo with a FastAPI backend (`back/`), a React + shadcn/ui frontend (`front/`) and PostgreSQL,
-all started with Docker Compose. List meetings, add them (title, description, participants,
-call link, place) and remove them.
+all started with Docker Compose. See meetings in a week or day calendar, add them (title, time,
+description, participants, call link, place) and remove them.
 
 ## Run everything
 
@@ -34,9 +34,10 @@ back/             # FastAPI + SQLAlchemy 2 + Alembic
   tests/
 front/            # Vite + React + TypeScript + Tailwind + shadcn/ui
   src/
-    components/   # MeetingsTable, MeetingFormDialog, DeleteMeetingDialog, ParticipantsMultiSelect
+    components/   # MeetingsCalendar, MeetingFormDialog, DeleteMeetingDialog, ParticipantsMultiSelect
     components/ui # generated shadcn components
     hooks/        # TanStack Query hooks
+    lib/calendar.ts # date helpers and the overlap layout for the calendar
     lib/api.ts    # typed fetch wrapper (VITE_API_URL = backend origin, empty = same origin)
   nginx.conf      # serves the SPA, proxies /api to backend
 infra/            # CloudFormation: backend-ecr, backend (Lambda + Aurora), frontend (S3 + CloudFront)
@@ -47,7 +48,7 @@ infra/            # CloudFormation: backend-ecr, backend (Lambda + Aurora), fron
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/api/health` | Liveness + DB check |
-| GET | `/api/meetings` | List meetings with participants, newest first |
+| GET | `/api/meetings` | List meetings with participants, by start time |
 | GET | `/api/meetings/{id}` | One meeting |
 | POST | `/api/meetings` | Create a meeting |
 | DELETE | `/api/meetings/{id}` | Delete a meeting |
@@ -55,7 +56,8 @@ infra/            # CloudFormation: backend-ecr, backend (Lambda + Aurora), fron
 | POST | `/api/participants` | Create a participant (409 on duplicate email) |
 | DELETE | `/api/participants/{id}` | Delete a participant |
 
-All IDs are UUIDs. A meeting needs a title and at least one of `call_link` or `place`.
+All IDs are UUIDs. A meeting needs a title, `starts_at` and `ends_at` (ISO 8601 with a timezone, end after start)
+and at least one of `call_link` or `place`.
 
 ## Local development
 

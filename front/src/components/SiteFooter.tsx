@@ -3,17 +3,7 @@ import { CalendarDays } from "lucide-react"
 const COLUMNS = [
   {
     title: "Meetings",
-    links: [
-      { label: "All meetings", href: "/" },
-      { label: "API documentation", href: "/api/docs" },
-    ],
-  },
-  {
-    title: "Resources",
-    links: [
-      { label: "OpenAPI schema", href: "/api/openapi.json" },
-      { label: "Health check", href: "/api/health" },
-    ],
+    links: [{ label: "All meetings", href: "/" }],
   },
 ]
 
@@ -21,7 +11,7 @@ export function SiteFooter() {
   return (
     <footer className="mt-auto text-white">
       <div className="bg-footer">
-        <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-[1.5fr_1fr_1fr]">
+        <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-[1.5fr_1fr]">
           <div className="space-y-6">
             <div className="flex items-center gap-3">
               <span className="flex size-14 items-center justify-center rounded-sm border-2 border-white/90">
@@ -33,11 +23,6 @@ export function SiteFooter() {
                 Scheduler
               </span>
             </div>
-            <p className="text-sm">
-              <span className="font-bold">Technical support:</span>
-              <br />
-              See the README in the project repository.
-            </p>
           </div>
           {COLUMNS.map((column) => (
             <div key={column.title}>

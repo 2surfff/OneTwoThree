@@ -11,9 +11,7 @@ from app.services.errors import NotFoundError
 
 def list_meetings(db: Session) -> Sequence[Meeting]:
     query = (
-        select(Meeting)
-        .options(selectinload(Meeting.participants))
-        .order_by(Meeting.created_at.desc(), Meeting.id)
+        select(Meeting).options(selectinload(Meeting.participants)).order_by(Meeting.starts_at, Meeting.id)
     )
     return db.scalars(query).all()
 
@@ -41,6 +39,8 @@ def create_meeting(db: Session, data: MeetingCreate) -> Meeting:
         description=data.description,
         call_link=str(data.call_link) if data.call_link else None,
         place=data.place,
+        starts_at=data.starts_at,
+        ends_at=data.ends_at,
         participants=participants,
     )
     db.add(meeting)

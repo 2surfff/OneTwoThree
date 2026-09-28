@@ -3,27 +3,59 @@ import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 
 import App from "@/App"
+import { formatLongDay, layoutDay } from "@/lib/calendar"
 import { parseNewParticipant } from "@/lib/participants"
-import { mockFetch, renderWithQuery, sampleMeeting } from "@/test/utils"
+import { mockFetch, renderWithQuery, sampleMeeting, todayAt } from "@/test/utils"
 
 describe("App", () => {
-  it("lists meetings with participants as badges", async () => {
+  it("shows meetings in the week calendar with details on click", async () => {
     mockFetch(() => ({ body: [sampleMeeting] }))
     renderWithQuery(<App />)
 
-    const table = await screen.findByRole("table")
-    expect(within(table).getByText("Sprint planning")).toBeInTheDocument()
-    expect(within(table).getByText("Anna")).toHaveAttribute("data-slot", "badge")
-    expect(within(table).getByRole("link", { name: /join/i })).toHaveAttribute(
+    const today = await screen.findByRole("region", { name: formatLongDay(new Date()) })
+    const block = within(today).getByRole("button", { name: /Sprint planning/ })
+    expect(block).toHaveTextContent("10:00 – 11:00")
+    expect(screen.getAllByRole("region")).toHaveLength(7)
+
+    await userEvent.click(block)
+    const details = await screen.findByRole("dialog")
+    expect(within(details).getByText("Anna")).toHaveAttribute("data-slot", "badge")
+    expect(within(details).getByRole("link", { name: /join call/i })).toHaveAttribute(
       "href",
       sampleMeeting.call_link,
     )
   })
 
-  it("shows the empty state", async () => {
+  it("switches between week and day views", async () => {
+    mockFetch(() => ({ body: [sampleMeeting] }))
+    renderWithQuery(<App />)
+
+    await screen.findByRole("region", { name: formatLongDay(new Date()) })
+    await userEvent.click(screen.getByRole("button", { name: "Day" }))
+    expect(screen.getByRole("button", { name: "Day" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getAllByRole("region")).toHaveLength(1)
+    expect(screen.getByRole("button", { name: /Sprint planning/ })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole("button", { name: "Next day" }))
+    expect(screen.queryByRole("button", { name: /Sprint planning/ })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole("button", { name: "Today" }))
+    expect(screen.getByRole("button", { name: /Sprint planning/ })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole("button", { name: "Week" }))
+    expect(screen.getAllByRole("region")).toHaveLength(7)
+  })
+
+  it("opens the form at the clicked time slot", async () => {
     mockFetch(() => ({ body: [] }))
     renderWithQuery(<App />)
-    expect(await screen.findByText("No meetings yet")).toBeInTheDocument()
+
+    const label = `New meeting on ${formatLongDay(new Date())} at 14:00`
+    await userEvent.click(await screen.findByRole("button", { name: label }))
+
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByLabelText("Start")).toHaveValue("14:00")
+    expect(within(dialog).getByLabelText("End")).toHaveValue("15:00")
   })
 
   it("asks for confirmation before deleting", async () => {
@@ -32,8 +64,8 @@ describe("App", () => {
     )
     renderWithQuery(<App />)
 
-    const table = await screen.findByRole("table")
-    await userEvent.click(within(table).getByRole("button", { name: "Delete Sprint planning" }))
+    await userEvent.click(await screen.findByRole("button", { name: /Sprint planning/ }))
+    await userEvent.click(await screen.findByRole("button", { name: "Delete Sprint planning" }))
 
     const dialog = await screen.findByRole("alertdialog")
     expect(dialog).toHaveTextContent("Delete Sprint planning?")
@@ -47,6 +79,32 @@ describe("App", () => {
       `/api/meetings/${sampleMeeting.id}`,
       expect.objectContaining({ method: "DELETE" }),
     )
+  })
+})
+
+describe("layoutDay", () => {
+  const meeting = (id: string, from: number, to: number) => ({
+    ...sampleMeeting,
+    id,
+    starts_at: todayAt(from).toISOString(),
+    ends_at: todayAt(to).toISOString(),
+  })
+
+  it("places overlapping meetings side by side", () => {
+    const segments = layoutDay(
+      [meeting("a", 9, 11), meeting("b", 10, 12), meeting("c", 13, 14)],
+      new Date(),
+    )
+    expect(segments.map(({ meeting, column, columns }) => [meeting.id, column, columns])).toEqual([
+      ["a", 0, 2],
+      ["b", 1, 2],
+      ["c", 0, 1],
+    ])
+  })
+
+  it("clips a meeting that runs past midnight", () => {
+    const late = { ...meeting("late", 23, 23), ends_at: todayAt(26).toISOString() }
+    expect(layoutDay([late], new Date())[0]).toMatchObject({ startMin: 23 * 60, endMin: 24 * 60 })
   })
 })
 

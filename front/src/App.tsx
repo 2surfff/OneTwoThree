@@ -1,11 +1,11 @@
 import { useState } from "react"
-import { CalendarX2, Plus } from "lucide-react"
+import { Plus } from "lucide-react"
 import { toast } from "sonner"
 
 import { BackToTop } from "@/components/BackToTop"
 import { DeleteMeetingDialog } from "@/components/DeleteMeetingDialog"
 import { MeetingFormDialog } from "@/components/MeetingFormDialog"
-import { MeetingsTable } from "@/components/MeetingsTable"
+import { MeetingsCalendar } from "@/components/MeetingsCalendar"
 import { SiteFooter } from "@/components/SiteFooter"
 import { SiteHeader } from "@/components/SiteHeader"
 import { Button } from "@/components/ui/button"
@@ -17,9 +17,13 @@ export default function App() {
   const { data: meetings, isPending, isError, error, refetch } = useMeetings()
   const deleteMeeting = useDeleteMeeting()
   const [formOpen, setFormOpen] = useState(false)
+  const [formStart, setFormStart] = useState<Date | undefined>()
   const [pendingDelete, setPendingDelete] = useState<Meeting | null>(null)
 
-  const openForm = () => setFormOpen(true)
+  const openForm = (start?: Date) => {
+    setFormStart(start)
+    setFormOpen(true)
+  }
 
   const confirmDelete = (meeting: Meeting) => {
     setPendingDelete(null)
@@ -31,7 +35,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <SiteHeader onNewMeeting={openForm} />
+      <SiteHeader onNewMeeting={() => openForm()} />
 
       <section
         aria-hidden
@@ -53,22 +57,16 @@ export default function App() {
 
         <section className="rounded-sm border bg-card p-4 sm:p-6">
           <div className="mb-5 flex items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold text-foreground">
-              Meetings
-              {meetings && meetings.length > 0 && (
-                <span className="ml-2 font-normal text-muted-foreground">({meetings.length})</span>
-              )}
-            </h2>
-            <Button onClick={openForm} className="px-5">
+            <h2 className="text-lg font-semibold text-foreground">Meetings</h2>
+            <Button onClick={() => openForm()} className="px-5">
               <Plus /> New meeting
             </Button>
           </div>
 
           {isPending ? (
             <div className="space-y-2" aria-label="Loading meetings">
-              {Array.from({ length: 4 }, (_, i) => (
-                <Skeleton key={i} className="h-14 w-full" />
-              ))}
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-[480px] w-full" />
             </div>
           ) : isError ? (
             <div
@@ -81,16 +79,12 @@ export default function App() {
                 Retry
               </Button>
             </div>
-          ) : meetings.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-sm border border-dashed p-12 text-center">
-              <CalendarX2 className="size-10 text-brand" />
-              <p className="text-muted-foreground">No meetings yet</p>
-              <Button onClick={openForm} className="px-5">
-                <Plus /> New meeting
-              </Button>
-            </div>
           ) : (
-            <MeetingsTable meetings={meetings} onDelete={setPendingDelete} />
+            <MeetingsCalendar
+              meetings={meetings}
+              onDelete={setPendingDelete}
+              onCreateAt={openForm}
+            />
           )}
         </section>
       </main>
@@ -98,7 +92,7 @@ export default function App() {
       <SiteFooter />
       <BackToTop />
 
-      <MeetingFormDialog open={formOpen} onOpenChange={setFormOpen} />
+      <MeetingFormDialog open={formOpen} onOpenChange={setFormOpen} initialStart={formStart} />
       <DeleteMeetingDialog
         meeting={pendingDelete}
         onCancel={() => setPendingDelete(null)}

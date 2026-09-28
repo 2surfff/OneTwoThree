@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "sonner"
@@ -25,6 +26,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useCreateMeeting } from "@/hooks/useMeetings"
 import { ApiError } from "@/lib/api"
+import { toDateInput, toTimeInput } from "@/lib/calendar"
 
 const meetingSchema = z
   .object({
@@ -35,21 +37,42 @@ const meetingSchema = z
       z.url({ protocol: /^https?$/, message: "Enter a valid http(s) URL" }),
     ]),
     place: z.string().trim().max(255, "Max 255 characters"),
+    date: z.string().min(1, "Date is required"),
+    start_time: z.string().min(1, "Start time is required"),
+    end_time: z.string().min(1, "End time is required"),
     participants: z.array(z.object({ id: z.string(), name: z.string(), email: z.string() })),
   })
   .refine((values) => values.call_link !== "" || values.place !== "", {
     message: "Provide a call link, a place, or both",
     path: ["place"],
   })
+  .refine(
+    (values) => !values.start_time || !values.end_time || values.end_time > values.start_time,
+    {
+      message: "End must be after start",
+      path: ["end_time"],
+    },
+  )
 
 type MeetingFormValues = z.infer<typeof meetingSchema>
 
-const emptyValues: MeetingFormValues = {
-  title: "",
-  description: "",
-  call_link: "",
-  place: "",
-  participants: [],
+/** Defaults to the next full hour, one hour long, kept within the same day. */
+function emptyValues(start?: Date): MeetingFormValues {
+  if (!start) {
+    start = new Date()
+    start.setHours(start.getHours() + 1, 0, 0, 0)
+  }
+  const end = new Date(start.getTime() + 60 * 60_000)
+  return {
+    title: "",
+    description: "",
+    call_link: "",
+    place: "",
+    date: toDateInput(start),
+    start_time: toTimeInput(start),
+    end_time: end.getDate() === start.getDate() ? toTimeInput(end) : "23:59",
+    participants: [],
+  }
 }
 
 const API_FIELD_TO_FORM: Record<string, keyof MeetingFormValues> = {
@@ -58,24 +81,27 @@ const API_FIELD_TO_FORM: Record<string, keyof MeetingFormValues> = {
   call_link: "call_link",
   place: "place",
   participant_ids: "participants",
+  starts_at: "start_time",
+  ends_at: "end_time",
 }
 
 interface MeetingFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Prefills the date and time, e.g. from a clicked calendar slot. */
+  initialStart?: Date
 }
 
-export function MeetingFormDialog({ open, onOpenChange }: MeetingFormDialogProps) {
+export function MeetingFormDialog({ open, onOpenChange, initialStart }: MeetingFormDialogProps) {
   const createMeeting = useCreateMeeting()
   const form = useForm<MeetingFormValues>({
     resolver: zodResolver(meetingSchema),
-    defaultValues: emptyValues,
+    defaultValues: emptyValues(initialStart),
   })
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next) form.reset(emptyValues)
-    onOpenChange(next)
-  }
+  useEffect(() => {
+    if (open) form.reset(emptyValues(initialStart))
+  }, [open, initialStart, form])
 
   const onSubmit = async (values: MeetingFormValues) => {
     try {
@@ -84,10 +110,12 @@ export function MeetingFormDialog({ open, onOpenChange }: MeetingFormDialogProps
         description: values.description.trim() || null,
         call_link: values.call_link || null,
         place: values.place || null,
+        starts_at: new Date(`${values.date}T${values.start_time}`).toISOString(),
+        ends_at: new Date(`${values.date}T${values.end_time}`).toISOString(),
         participant_ids: values.participants.map((p) => p.id),
       })
       toast.success("Meeting created")
-      handleOpenChange(false)
+      onOpenChange(false)
     } catch (error) {
       if (error instanceof ApiError && error.status === 422 && error.issues.length > 0) {
         for (const issue of error.issues) {
@@ -101,7 +129,7 @@ export function MeetingFormDialog({ open, onOpenChange }: MeetingFormDialogProps
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New meeting</DialogTitle>
@@ -125,6 +153,47 @@ export function MeetingFormDialog({ open, onOpenChange }: MeetingFormDialogProps
                 </FormItem>
               )}
             />
+            <div className="grid gap-4 sm:grid-cols-[1.4fr_1fr_1fr]">
+              <FormField
+                control={form.control}
+                name="date"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Date</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="start_time"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Start</FormLabel>
+                    <FormControl>
+                      <Input type="time" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="end_time"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>End</FormLabel>
+                    <FormControl>
+                      <Input type="time" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
             <FormField
               control={form.control}
               name="description"
@@ -185,7 +254,7 @@ export function MeetingFormDialog({ open, onOpenChange }: MeetingFormDialogProps
             )}
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
               <Button type="submit" disabled={createMeeting.isPending}>

@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from fastapi.testclient import TestClient
 
@@ -15,6 +16,8 @@ def meeting_payload(**overrides) -> dict:
         "description": "Plan sprint 12 scope",
         "call_link": "https://meet.google.com/abc-defg-hij",
         "place": "Room 204",
+        "starts_at": "2026-09-28T10:00:00+03:00",
+        "ends_at": "2026-09-28T11:00:00+03:00",
         "participant_ids": [],
     }
     payload.update(overrides)
@@ -35,6 +38,8 @@ def test_create_list_and_delete_meeting(client: TestClient):
     assert response.status_code == 201, response.text
     meeting = response.json()
     uuid.UUID(meeting["id"])
+    assert datetime.fromisoformat(meeting["starts_at"]) == datetime.fromisoformat("2026-09-28T07:00:00Z")
+    assert datetime.fromisoformat(meeting["ends_at"]) == datetime.fromisoformat("2026-09-28T08:00:00Z")
     assert [p["name"] for p in meeting["participants"]] == ["Anna", "Oleh"]
 
     listed = client.get("/api/meetings").json()
@@ -43,6 +48,19 @@ def test_create_list_and_delete_meeting(client: TestClient):
     assert client.delete(f"/api/meetings/{meeting['id']}").status_code == 204
     assert client.get("/api/meetings").json() == []
     assert client.get(f"/api/meetings/{meeting['id']}").status_code == 404
+
+
+def test_meetings_are_listed_by_start_time(client: TestClient):
+    for title, start, end in (
+        ("Retro", "2026-09-30T15:00:00Z", "2026-09-30T16:00:00Z"),
+        ("Standup", "2026-09-28T09:00:00Z", "2026-09-28T09:15:00Z"),
+    ):
+        response = client.post(
+            "/api/meetings", json=meeting_payload(title=title, starts_at=start, ends_at=end)
+        )
+        assert response.status_code == 201, response.text
+
+    assert [m["title"] for m in client.get("/api/meetings").json()] == ["Standup", "Retro"]
 
 
 def test_participant_can_join_many_meetings(client: TestClient):
@@ -86,6 +104,19 @@ def test_bad_call_link_is_rejected(client: TestClient):
 
 def test_call_link_or_place_is_required(client: TestClient):
     response = client.post("/api/meetings", json=meeting_payload(call_link=None, place=""))
+    assert response.status_code == 422
+
+
+def test_meeting_must_end_after_it_starts(client: TestClient):
+    response = client.post(
+        "/api/meetings",
+        json=meeting_payload(starts_at="2026-09-28T10:00:00Z", ends_at="2026-09-28T10:00:00Z"),
+    )
+    assert response.status_code == 422
+
+
+def test_meeting_time_needs_a_timezone(client: TestClient):
+    response = client.post("/api/meetings", json=meeting_payload(starts_at="2026-09-28T10:00:00"))
     assert response.status_code == 422
 
 

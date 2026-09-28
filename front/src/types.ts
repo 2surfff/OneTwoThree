@@ -10,6 +10,8 @@ export interface Meeting {
   description: string | null
   call_link: string | null
   place: string | null
+  starts_at: string
+  ends_at: string
   participants: Participant[]
   created_at: string
 }
@@ -19,6 +21,8 @@ export interface MeetingCreate {
   description: string | null
   call_link: string | null
   place: string | null
+  starts_at: string
+  ends_at: string
   participant_ids: string[]
 }
 

@@ -23,12 +23,21 @@ export function mockFetch(handler: Handler) {
   })
 }
 
+/** Today at the given local hour, so the sample shows up in the current week and day. */
+export function todayAt(hour: number): Date {
+  const date = new Date()
+  date.setHours(hour, 0, 0, 0)
+  return date
+}
+
 export const sampleMeeting: Meeting = {
   id: "9a8b7c6d-1e2f-4a3b-9c4d-5e6f7a8b9c03",
   title: "Sprint planning",
   description: "Plan sprint 12 scope",
   call_link: "https://meet.google.com/abc-defg-hij",
   place: "Room 204",
+  starts_at: todayAt(10).toISOString(),
+  ends_at: todayAt(11).toISOString(),
   created_at: "2026-09-21T10:00:00Z",
   participants: [
     { id: "3f1c2a9e-8b4d-4c1e-9a7f-2d5b6e8c1a01", name: "Anna", email: "anna@example.com" },

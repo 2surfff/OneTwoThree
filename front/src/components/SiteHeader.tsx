@@ -1,4 +1,4 @@
-import { CalendarDays, CircleHelp, Plus } from "lucide-react"
+import { CalendarDays, Plus } from "lucide-react"
 
 interface SiteHeaderProps {
   onNewMeeting: () => void
@@ -26,22 +26,9 @@ export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
           >
             Meetings
           </a>
-          <a
-            href="/api/docs"
-            className="flex items-center border-b-[3px] border-transparent pt-[3px] text-white/90 hover:border-white/60"
-          >
-            API
-          </a>
         </nav>
 
         <div className="ml-auto flex items-center gap-4">
-          <a
-            href="/api/docs"
-            className="hidden items-center gap-1.5 text-sm text-white/90 hover:text-white md:flex"
-          >
-            <CircleHelp className="size-4" /> Help
-          </a>
-          <span className="hidden h-10 w-px bg-white/30 md:block" />
           <button
             type="button"
             onClick={onNewMeeting}

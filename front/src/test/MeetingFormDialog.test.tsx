@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest"
 import { MeetingFormDialog } from "@/components/MeetingFormDialog"
 import { mockFetch, renderWithQuery } from "@/test/utils"
 
+const START = new Date(2026, 8, 28, 10)
+
 function renderForm() {
   const fetchMock = mockFetch(() => ({ body: [] }))
-  renderWithQuery(<MeetingFormDialog open onOpenChange={() => {}} />)
+  renderWithQuery(<MeetingFormDialog open onOpenChange={() => {}} initialStart={START} />)
   return fetchMock
 }
 
@@ -33,6 +35,17 @@ describe("MeetingFormDialog", () => {
     expect(await screen.findByText("Enter a valid http(s) URL")).toBeInTheDocument()
   })
 
+  it("requires the meeting to end after it starts", async () => {
+    renderForm()
+    await userEvent.type(screen.getByLabelText("Title"), "Standup")
+    await userEvent.type(screen.getByLabelText("Place"), "Room 1")
+    await userEvent.clear(screen.getByLabelText("End"))
+    await userEvent.type(screen.getByLabelText("End"), "09:30")
+    await userEvent.click(screen.getByRole("button", { name: "Create meeting" }))
+
+    expect(await screen.findByText("End must be after start")).toBeInTheDocument()
+  })
+
   it("submits valid data to the API", async () => {
     const fetchMock = renderForm()
     await userEvent.type(screen.getByLabelText("Title"), "Standup")
@@ -46,6 +59,8 @@ describe("MeetingFormDialog", () => {
       description: null,
       call_link: null,
       place: "Room 1",
+      starts_at: START.toISOString(),
+      ends_at: new Date(2026, 8, 28, 11).toISOString(),
       participant_ids: [],
     })
   })
