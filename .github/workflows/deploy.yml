@@ -26,6 +26,9 @@ jobs:
   frontend:
     name: "Frontend: S3 + CloudFront"
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     defaults:
       run:
         working-directory: front
@@ -51,8 +54,8 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::334177992228:role/github-actions-deploy-role
+          aws-region: eu-north-1
 
       - name: Sync static files to S3
         run: |
@@ -69,6 +72,9 @@ jobs:
   backend:
     name: "Backend: Docker ECR + ECS Fargate"
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -76,8 +82,8 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::334177992228:role/github-actions-deploy-role
+          aws-region: eu-north-1
 
       - name: Login to Amazon ECR
         id: login-ecr
