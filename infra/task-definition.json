@@ -1,0 +1,32 @@
+{
+  "family": "meetings-backend-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::334177992228:role/meetings-ecs-execution-role",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "334177992228.dkr.ecr.eu-north-1.amazonaws.com/meetings-backend:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "CORS_ORIGINS", "value": "http://localhost:3000,http://localhost:5173" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/meetings-backend",
+          "awslogs-region": "eu-north-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
