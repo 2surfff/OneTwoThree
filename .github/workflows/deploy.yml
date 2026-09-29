@@ -20,7 +20,7 @@ env:
   ECR_REPOSITORY: meetings-backend
   ECS_CLUSTER: meetings-cluster
   ECS_SERVICE: meetings-backend-svc
-  VITE_API_URL: http://meetings-alb-1279017703.eu-north-1.elb.amazonaws.com
+  VITE_API_URL: ""
 
 jobs:
   frontend:
