@@ -96,9 +96,7 @@ export function getCognitoLogoutUrl(): string {
     "anton-meetings-2026.auth.eu-north-1.amazoncognito.com"
   const domain = rawDomain.replace(/^https?:\/\//, "").replace(/\/+$/, "")
   const clientId =
-    authConfig().clientId ||
-    env.VITE_COGNITO_CLIENT_ID ||
-    "520q7rcdd0c5hf0ahk2adb8bm3"
+    authConfig().clientId || env.VITE_COGNITO_CLIENT_ID || "520q7rcdd0c5hf0ahk2adb8bm3"
   const origin = window.location.origin
   const logoutUri = origin.includes("cloudfront.net")
     ? "https://d1y19dbl226ufk.cloudfront.net/"

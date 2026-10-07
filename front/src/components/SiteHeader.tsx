@@ -2,7 +2,13 @@ import { useQueryClient } from "@tanstack/react-query"
 import { CalendarDays, LogIn, LogOut, Plus } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
-import { clearAllAuthStorage, getCognitoLogoutUrl, getOidcEmail, isSignedIn, signOut } from "@/lib/auth"
+import {
+  clearAllAuthStorage,
+  getCognitoLogoutUrl,
+  getOidcEmail,
+  isSignedIn,
+  signOut,
+} from "@/lib/auth"
 import { useSafeAuth } from "@/lib/useSafeAuth"
 import { useMe } from "@/hooks/useMe"
 
@@ -19,7 +25,7 @@ export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
   // Real OIDC email strictly from Cognito tokens in production
   const oidcEmail = (auth?.user?.profile?.email as string | undefined) ?? getOidcEmail()
   const isTest = import.meta.env.MODE === "test"
-  const userDisplay = oidcEmail ?? (isTest && isSignedIn() ? (me?.name || me?.email) : null)
+  const userDisplay = oidcEmail ?? (isTest && isSignedIn() ? me?.name || me?.email : null)
   const authenticated = Boolean(auth?.isAuthenticated || oidcEmail || (isTest && isSignedIn()))
 
   const handleSignOut = async () => {
