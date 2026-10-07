@@ -60,6 +60,34 @@ export function getOidcIdToken(): string | null {
   return null
 }
 
+export function getOidcEmail(): string | null {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith("oidc.user:")) {
+        const item = localStorage.getItem(key)
+        if (item) {
+          const user = JSON.parse(item)
+          if (user?.expires_at && user.expires_at * 1000 < Date.now()) {
+            continue
+          }
+          if (user?.profile?.email) return user.profile.email
+          if (user?.id_token) {
+            const parts = user.id_token.split(".")
+            if (parts.length === 3) {
+              const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")))
+              if (payload?.email) return payload.email
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
 export function getCognitoLogoutUrl(): string | null {
   const { domain, clientId } = authConfig()
   if (!domain || !clientId) return null
@@ -167,7 +195,7 @@ function saveTokens(tokens: Tokens, previousRefresh?: string) {
   })
 }
 
-export const isSignedIn = () => getOidcIdToken() !== null || readSession() !== null
+export const isSignedIn = () => getOidcIdToken() !== null || getOidcEmail() !== null
 
 export function signOut() {
   writeSession(null)

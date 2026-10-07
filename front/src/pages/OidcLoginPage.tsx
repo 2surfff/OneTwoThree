@@ -4,20 +4,16 @@ import { useAuth } from "react-oidc-context"
 import { useNavigate } from "react-router"
 
 import { AuthLayout } from "@/components/auth/AuthLayout"
-import { authEnabled } from "@/lib/auth"
+import { getOidcEmail } from "@/lib/auth"
 
 export function OidcLoginPage() {
   const auth = useAuth()
   const navigate = useNavigate()
   const redirectTriggered = useRef(false)
+  const userEmail = (auth.user?.profile?.email as string | undefined) ?? getOidcEmail()
 
   useEffect(() => {
-    if (!authEnabled()) {
-      navigate("/home", { replace: true })
-      return
-    }
-
-    if (auth.isAuthenticated) {
+    if (auth.isAuthenticated || userEmail) {
       navigate("/home", { replace: true })
       return
     }
@@ -28,7 +24,7 @@ export function OidcLoginPage() {
         console.error("Failed to redirect to Cognito login:", err)
       })
     }
-  }, [auth.isAuthenticated, auth.isLoading, auth, navigate])
+  }, [auth.isAuthenticated, auth.isLoading, auth, userEmail, navigate])
 
   return (
     <AuthLayout>

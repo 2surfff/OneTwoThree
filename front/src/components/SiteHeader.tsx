@@ -3,8 +3,7 @@ import { CalendarDays, LogIn, LogOut, Plus } from "lucide-react"
 import { useAuth } from "react-oidc-context"
 import { Link, useNavigate } from "react-router"
 
-import { useMe } from "@/hooks/useMe"
-import { getCognitoLogoutUrl, isSignedIn, signOut } from "@/lib/auth"
+import { getCognitoLogoutUrl, getOidcEmail, signOut } from "@/lib/auth"
 
 interface SiteHeaderProps {
   onNewMeeting?: () => void
@@ -12,13 +11,12 @@ interface SiteHeaderProps {
 
 export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
   const auth = useAuth()
-  const { data: me } = useMe()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
-  const authenticated = auth.isAuthenticated || isSignedIn()
-  const userEmail = (auth.user?.profile?.email as string | undefined) ?? me?.email
-  const userName = (auth.user?.profile?.name as string | undefined) ?? me?.name ?? userEmail
+  // Real OIDC email strictly from Cognito tokens
+  const userEmail = (auth.user?.profile?.email as string | undefined) ?? getOidcEmail()
+  const authenticated = Boolean(auth.isAuthenticated || userEmail)
 
   const handleSignOut = async () => {
     signOut()
@@ -30,7 +28,7 @@ export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
     if (logoutUrl) {
       window.location.assign(logoutUrl)
     } else {
-      navigate("/", { replace: true })
+      navigate("/login/", { replace: true })
     }
   }
 
@@ -58,7 +56,7 @@ export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
         </nav>
 
         <div className="ml-auto flex items-center gap-4">
-          {authenticated ? (
+          {authenticated && userEmail ? (
             <>
               {onNewMeeting && (
                 <button
@@ -70,14 +68,12 @@ export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
                 </button>
               )}
               <span className="h-8 w-px bg-white/30" />
-              {userName && (
-                <span
-                  className="hidden max-w-48 truncate text-sm text-white/90 lg:inline"
-                  title={userEmail}
-                >
-                  {userName}
-                </span>
-              )}
+              <span
+                className="hidden max-w-48 truncate text-sm text-white/90 lg:inline"
+                title={userEmail}
+              >
+                {userEmail}
+              </span>
               <button
                 type="button"
                 onClick={handleSignOut}
