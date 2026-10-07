@@ -5,6 +5,7 @@ import { AuthCallbackPage } from "@/pages/AuthCallbackPage"
 import { ConfirmPage } from "@/pages/ConfirmPage"
 import { HomePage } from "@/pages/HomePage"
 import { LoginPage } from "@/pages/LoginPage"
+import { OidcLoginPage } from "@/pages/OidcLoginPage"
 import { SignUpPage } from "@/pages/SignUpPage"
 
 export default function App() {
@@ -18,6 +19,8 @@ export default function App() {
           </RedirectIfSignedIn>
         }
       />
+      <Route path="/login" element={<OidcLoginPage />} />
+      <Route path="/login/" element={<OidcLoginPage />} />
       <Route
         path="/signup"
         element={
@@ -26,10 +29,27 @@ export default function App() {
           </RedirectIfSignedIn>
         }
       />
+      <Route
+        path="/signup/"
+        element={
+          <RedirectIfSignedIn>
+            <SignUpPage />
+          </RedirectIfSignedIn>
+        }
+      />
       <Route path="/confirm" element={<ConfirmPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/auth/callback/" element={<AuthCallbackPage />} />
       <Route
         path="/home"
+        element={
+          <RequireAuth>
+            <HomePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/home/"
         element={
           <RequireAuth>
             <HomePage />

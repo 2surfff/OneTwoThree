@@ -1,23 +1,37 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { CalendarDays, LogOut, Plus } from "lucide-react"
+import { CalendarDays, LogIn, LogOut, Plus } from "lucide-react"
+import { useAuth } from "react-oidc-context"
 import { Link, useNavigate } from "react-router"
 
 import { useMe } from "@/hooks/useMe"
-import { signOut } from "@/lib/auth"
+import { getCognitoLogoutUrl, isSignedIn, signOut } from "@/lib/auth"
 
 interface SiteHeaderProps {
-  onNewMeeting: () => void
+  onNewMeeting?: () => void
 }
 
 export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
+  const auth = useAuth()
   const { data: me } = useMe()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
-  const handleSignOut = () => {
+  const authenticated = auth.isAuthenticated || isSignedIn()
+  const userEmail = (auth.user?.profile?.email as string | undefined) ?? me?.email
+  const userName = (auth.user?.profile?.name as string | undefined) ?? me?.name ?? userEmail
+
+  const handleSignOut = async () => {
     signOut()
     queryClient.clear()
-    navigate("/", { replace: true })
+    if (auth.removeUser) {
+      await auth.removeUser().catch(() => {})
+    }
+    const logoutUrl = getCognitoLogoutUrl()
+    if (logoutUrl) {
+      window.location.assign(logoutUrl)
+    } else {
+      navigate("/", { replace: true })
+    }
   }
 
   return (
@@ -44,31 +58,45 @@ export function SiteHeader({ onNewMeeting }: SiteHeaderProps) {
         </nav>
 
         <div className="ml-auto flex items-center gap-4">
-          <button
-            type="button"
-            onClick={onNewMeeting}
-            className="flex items-center gap-1.5 text-sm font-semibold hover:text-white/80"
-          >
-            <Plus className="size-4" /> New meeting
-          </button>
-          <span className="h-8 w-px bg-white/30" />
-          {me && (
-            <span
-              className="hidden max-w-48 truncate text-sm text-white/90 lg:inline"
-              title={me.email}
+          {authenticated ? (
+            <>
+              {onNewMeeting && (
+                <button
+                  type="button"
+                  onClick={onNewMeeting}
+                  className="flex items-center gap-1.5 text-sm font-semibold hover:text-white/80"
+                >
+                  <Plus className="size-4" /> New meeting
+                </button>
+              )}
+              <span className="h-8 w-px bg-white/30" />
+              {userName && (
+                <span
+                  className="hidden max-w-48 truncate text-sm text-white/90 lg:inline"
+                  title={userEmail}
+                >
+                  {userName}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="flex items-center gap-1.5 text-sm text-white/90 hover:text-white"
+                aria-label="Sign out"
+              >
+                <LogOut className="size-4" />
+                <span className="hidden md:inline">Sign out</span>
+              </button>
+            </>
+          ) : (
+            <Link
+              to="/login/"
+              className="flex items-center gap-1.5 rounded-sm bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20"
             >
-              {me.name ?? me.email}
-            </span>
+              <LogIn className="size-4" />
+              <span>Sign in</span>
+            </Link>
           )}
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="flex items-center gap-1.5 text-sm text-white/90 hover:text-white"
-            aria-label="Sign out"
-          >
-            <LogOut className="size-4" />
-            <span className="hidden md:inline">Sign out</span>
-          </button>
         </div>
       </div>
     </header>

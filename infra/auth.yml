@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Meetings App - Cognito User Pool with Google Identity Provider,
+  Managed Login v2, and OIDC Client configuration for Lab 4.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: meetings
+    Description: Project name prefix for resources.
+
+  GoogleClientId:
+    Type: String
+    Description: Google OAuth 2.0 Client ID.
+
+  GoogleClientSecret:
+    Type: String
+    NoEcho: true
+    Description: Google OAuth 2.0 Client Secret.
+
+  CognitoDomainPrefix:
+    Type: String
+    Default: anton-meetings-2026
+    Description: Unique prefix for the Cognito Managed Login domain.
+
+  FrontendDomain:
+    Type: String
+    Default: d1y19dbl226ufk.cloudfront.net
+    Description: CloudFront or custom domain of the frontend.
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${ProjectName}-users
+      UserPoolTier: ESSENTIALS
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      UserPoolTags:
+        PROJECT_NAME: !Ref ProjectName
+
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: "openid email profile"
+      AttributeMapping:
+        email: email
+        name: name
+        username: sub
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: GoogleIdentityProvider
+    Properties:
+      ClientName: frontend
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+        - Google
+      CallbackURLs:
+        - !Sub https://${FrontendDomain}/
+        - !Sub https://${FrontendDomain}/auth/callback/
+        - http://localhost:3000/
+        - http://localhost:3000/auth/callback/
+        - http://localhost:5173/
+        - http://localhost:5173/auth/callback/
+      LogoutURLs:
+        - !Sub https://${FrontendDomain}/
+        - http://localhost:3000/
+        - http://localhost:5173/
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Ref CognitoDomainPrefix
+      ManagedLoginVersion: 2
+
+  ManagedLoginBranding:
+    Type: AWS::Cognito::ManagedLoginBranding
+    DependsOn: UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientId: !Ref UserPoolClient
+      UseCognitoProvidedValues: true
+
+Outputs:
+  UserPoolId:
+    Description: ID of the Cognito User Pool
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub ${ProjectName}-UserPoolId
+
+  UserPoolClientId:
+    Description: ID of the Cognito User Pool Client
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub ${ProjectName}-UserPoolClientId
+
+  AuthDomain:
+    Description: Fully qualified domain name for Cognito Managed Login
+    Value: !Sub ${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com
+    Export:
+      Name: !Sub ${ProjectName}-AuthDomain
+
+  AuthorityUrl:
+    Description: OIDC Authority / Issuer URL
+    Value: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+    Export:
+      Name: !Sub ${ProjectName}-AuthorityUrl

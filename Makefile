@@ -1,44 +1,88 @@
 # ============================================================================
-# Meetings App — ECS Fargate deployment contract (Makefile)
-# Usage:  make deploy-frontend   (build + S3 sync + CloudFront invalidation)
-#         make deploy-backend    (ECR login, Docker build, push, ECS redeploy)
-#         make deploy-infra      (one-time: create all AWS resources)
+# Meetings App — ECS Fargate & Cognito deployment contract (Makefile)
+# Usage:  make aws-deploy-auth     (deploy Cognito User Pool & Google IdP)
+#         make aws-deploy-frontend (build frontend with Cognito config, sync to S3, invalidate CloudFront)
+#         make deploy-frontend     (alias for aws-deploy-frontend, runs auth first)
+#         make deploy-backend      (ECR login, Docker build, push, ECS redeploy)
+#         make deploy-infra        (one-time: create all AWS resources)
+#         make deploy-all          (full deployment pipeline: auth -> frontend -> backend)
 # ============================================================================
 .DEFAULT_GOAL := help
+
+# Load environment variables from .env if present
+-include .env
+export
 
 # ---------------------------------------------------------------------------
 # Configuration (override via environment or command line)
 # ---------------------------------------------------------------------------
-AWS_REGION         ?= eu-north-1
-AWS_ACCOUNT_ID     ?= 334177992228
-PROJECT            ?= meetings
+AWS_REGION            ?= eu-north-1
+AWS_ACCOUNT_ID        ?= 334177992228
+PROJECT               ?= meetings
+FRONTEND_DOMAIN       ?= d1y19dbl226ufk.cloudfront.net
+
+# Auth (Cognito & Google OAuth)
+AUTH_STACK            ?= $(PROJECT)-auth
+GOOGLE_CLIENT_ID      ?=
+GOOGLE_CLIENT_SECRET  ?=
+COGNITO_DOMAIN_PREFIX ?= anton-meetings-2026
 
 # Frontend
-S3_BUCKET          ?= $(PROJECT)-frontend-$(AWS_ACCOUNT_ID)
-CF_DISTRIBUTION_ID ?= ESXCTSSJ27R0H
+S3_BUCKET             ?= $(PROJECT)-frontend-$(AWS_ACCOUNT_ID)
+CF_DISTRIBUTION_ID    ?= ESXCTSSJ27R0H
 
 # Backend
-ECR_REPO           ?= $(PROJECT)-backend
-ECR_URI            ?= $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO)
-ECS_CLUSTER        ?= $(PROJECT)-cluster
-ECS_SERVICE        ?= $(PROJECT)-backend-svc
-ECS_TASK_FAMILY    ?= $(PROJECT)-backend-task
+ECR_REPO              ?= $(PROJECT)-backend
+ECR_URI               ?= $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(ECR_REPO)
+ECS_CLUSTER           ?= $(PROJECT)-cluster
+ECS_SERVICE           ?= $(PROJECT)-backend-svc
+ECS_TASK_FAMILY       ?= $(PROJECT)-backend-task
 
 # Network (default VPC)
-VPC_ID             ?= vpc-06a44a341230eac1f
-SUBNET_1           ?= subnet-04f8a8ab3ddd48bca
-SUBNET_2           ?= subnet-051036efda8009e98
-ALB_SG             ?= sg-06257b3ed60d576f7
-ECS_SG             ?= sg-03ae0158551fe30b0
-TG_ARN             ?= arn:aws:elasticloadbalancing:eu-north-1:334177992228:targetgroup/meetings-backend-tg/71809a34245ffbb2
+VPC_ID                ?= vpc-06a44a341230eac1f
+SUBNET_1              ?= subnet-04f8a8ab3ddd48bca
+SUBNET_2              ?= subnet-051036efda8009e98
+ALB_SG                ?= sg-06257b3ed60d576f7
+ECS_SG                ?= sg-03ae0158551fe30b0
+TG_ARN                ?= arn:aws:elasticloadbalancing:eu-north-1:334177992228:targetgroup/meetings-backend-tg/71809a34245ffbb2
 
 # Commit SHA for image tagging
-TAG                ?= $(shell git rev-parse --short HEAD)
+TAG                   ?= $(shell git rev-parse --short HEAD)
 
-##@ Deployment
+##@ Auth Deployment
 
-.PHONY: deploy-frontend
-deploy-frontend: ## Build frontend, sync to S3, invalidate CloudFront
+.PHONY: aws-deploy-auth deploy-auth
+aws-deploy-auth deploy-auth: ## Deploy Cognito User Pool, Google IdP, Managed Login v2
+	@echo "==> Deploying Cognito Auth stack ($(AUTH_STACK))..."
+	aws cloudformation deploy \
+	  --template-file infra/auth.yml \
+	  --stack-name $(AUTH_STACK) \
+	  --parameter-overrides \
+	    ProjectName=$(PROJECT) \
+	    GoogleClientId="$(GOOGLE_CLIENT_ID)" \
+	    GoogleClientSecret="$(GOOGLE_CLIENT_SECRET)" \
+	    CognitoDomainPrefix="$(COGNITO_DOMAIN_PREFIX)" \
+	    FrontendDomain="$(FRONTEND_DOMAIN)" \
+	  --capabilities CAPABILITY_IAM \
+	  --no-fail-on-empty-changeset \
+	  --region $(AWS_REGION)
+	@echo "==> Cognito Auth stack deployed!"
+
+##@ Frontend Deployment
+
+.PHONY: aws-deploy-frontend deploy-frontend
+aws-deploy-frontend deploy-frontend: aws-deploy-auth ## Build frontend with Cognito config, sync to S3, invalidate CloudFront
+	@echo "==> Retrieving Cognito configuration from stack $(AUTH_STACK)..."
+	$(eval POOL_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text))
+	$(eval CLIENT_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text))
+	$(eval DOMAIN := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AuthDomain'].OutputValue" --output text))
+	$(eval AUTH_URL := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AuthorityUrl'].OutputValue" --output text))
+	@echo "UserPoolId:   $(POOL_ID)"
+	@echo "ClientId:     $(CLIENT_ID)"
+	@echo "AuthDomain:   $(DOMAIN)"
+	@echo "AuthorityUrl: $(AUTH_URL)"
+	@echo "==> Generating frontend environment configuration..."
+	@node -e "const fs=require('fs'); fs.writeFileSync('front/.env.production', 'VITE_COGNITO_REGION=$(AWS_REGION)\nVITE_COGNITO_USER_POOL_ID=$(POOL_ID)\nVITE_COGNITO_CLIENT_ID=$(CLIENT_ID)\nVITE_COGNITO_DOMAIN=$(DOMAIN)\nVITE_COGNITO_AUTHORITY=$(AUTH_URL)\nVITE_COGNITO_GOOGLE=true\nVITE_API_URL=\n');"
 	@echo "==> Building frontend..."
 	cd front && npm run build
 	@echo "==> Syncing to S3 bucket $(S3_BUCKET)..."
@@ -48,6 +92,8 @@ deploy-frontend: ## Build frontend, sync to S3, invalidate CloudFront
 	  --distribution-id $(CF_DISTRIBUTION_ID) --paths "/*" \
 	  --query "Invalidation.Status" --output text
 	@echo "==> Frontend deployed!"
+
+##@ Backend Deployment
 
 .PHONY: deploy-backend
 deploy-backend: ## Login to ECR, build Docker image, push with commit SHA tag, update ECS
@@ -64,6 +110,11 @@ deploy-backend: ## Login to ECR, build Docker image, push with commit SHA tag, u
 	  --force-new-deployment --region $(AWS_REGION) \
 	  --query "service.deployments[0].status" --output text
 	@echo "==> Backend deployed with image tag $(TAG)!"
+
+##@ Pipeline
+
+.PHONY: deploy-all
+deploy-all: aws-deploy-auth aws-deploy-frontend deploy-backend ## Full deployment pipeline: auth -> frontend -> backend
 
 ##@ Infrastructure (one-time setup)
 
@@ -126,6 +177,11 @@ infra-ecs: ## Create ECS Cluster, Task Definition, and Service
 status: ## Show all resource IDs and endpoints
 	@echo "=== Meetings App Infrastructure ==="
 	@echo "Region:          $(AWS_REGION)"
+	@echo "--- Cognito Auth ---"
+	@echo "Auth Stack:      $(AUTH_STACK)"
+	@echo "UserPool ID:     eu-north-1_2JHnz3607"
+	@echo "Client ID:       520q7rcdd0c5hf0ahk2adb8bm3"
+	@echo "Cognito Domain:  anton-meetings-2026.auth.eu-north-1.amazoncognito.com"
 	@echo "--- Frontend ---"
 	@echo "S3 Bucket:       $(S3_BUCKET)"
 	@echo "CloudFront ID:   $(CF_DISTRIBUTION_ID)"
@@ -145,6 +201,10 @@ status: ## Show all resource IDs and endpoints
 
 .PHONY: help
 help: ## Show this help
-	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make \033[36m<target>\033[0m\n"} \
-	  /^[a-zA-Z_.-]+:.*?##/ { printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2 } \
-	  /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
+	@echo "Available make targets:"
+	@echo "  make aws-deploy-auth     - Deploy Cognito User Pool, Google IdP, Managed Login v2"
+	@echo "  make aws-deploy-frontend - Build frontend with Cognito config, sync to S3, invalidate CloudFront"
+	@echo "  make deploy-frontend     - Alias for aws-deploy-frontend"
+	@echo "  make deploy-backend      - Build Docker image, push to ECR, update ECS"
+	@echo "  make deploy-all          - Run full deploy pipeline (auth -> frontend -> backend)"
+	@echo "  make status              - Show resource IDs and endpoints"

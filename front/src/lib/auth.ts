@@ -7,6 +7,9 @@
  * "signs in" and the backend treats every request as one local user.
  */
 
+import { WebStorageStateStore } from "oidc-client-ts"
+import type { AuthProviderProps } from "react-oidc-context"
+
 export interface AuthConfig {
   region: string
   clientId: string
@@ -14,10 +17,61 @@ export interface AuthConfig {
   googleEnabled: boolean
 }
 
+export function getOidcConfig(): AuthProviderProps {
+  const env = import.meta.env
+  const region = env.VITE_COGNITO_REGION || "eu-north-1"
+  const userPoolId = env.VITE_COGNITO_USER_POOL_ID || ""
+  const clientId = env.VITE_COGNITO_CLIENT_ID || ""
+  const authority =
+    env.VITE_COGNITO_AUTHORITY ||
+    (userPoolId ? `https://cognito-idp.${region}.amazonaws.com/${userPoolId}` : "")
+
+  return {
+    authority: authority || "https://cognito-idp.eu-north-1.amazonaws.com/placeholder",
+    client_id: clientId || "placeholder",
+    redirect_uri: `${window.location.origin}/auth/callback/`,
+    response_type: "code",
+    scope: "openid email profile",
+    userStore: new WebStorageStateStore({ store: window.localStorage }),
+    onSigninCallback: () => {
+      window.history.replaceState({}, document.title, window.location.pathname)
+    },
+  }
+}
+
+export function getOidcIdToken(): string | null {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith("oidc.user:")) {
+        const item = localStorage.getItem(key)
+        if (item) {
+          const user = JSON.parse(item)
+          if (user?.expires_at && user.expires_at * 1000 < Date.now()) {
+            continue
+          }
+          if (user?.id_token) return user.id_token
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+export function getCognitoLogoutUrl(): string | null {
+  const { domain, clientId } = authConfig()
+  if (!domain || !clientId) return null
+  const domainClean = domain.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+  const logoutUri = `${window.location.origin}/`
+  return `https://${domainClean}/logout?client_id=${encodeURIComponent(clientId)}&logout_uri=${encodeURIComponent(logoutUri)}`
+}
+
 export function authConfig(): AuthConfig {
   const env = import.meta.env
   return {
-    region: env.VITE_COGNITO_REGION || "us-east-1",
+    region: env.VITE_COGNITO_REGION || "eu-north-1",
     clientId: env.VITE_COGNITO_CLIENT_ID ?? "",
     domain: env.VITE_COGNITO_DOMAIN ?? "",
     googleEnabled: env.VITE_COGNITO_GOOGLE === "true" && Boolean(env.VITE_COGNITO_DOMAIN),
@@ -113,14 +167,29 @@ function saveTokens(tokens: Tokens, previousRefresh?: string) {
   })
 }
 
-export const isSignedIn = () => readSession() !== null
+export const isSignedIn = () => getOidcIdToken() !== null || readSession() !== null
 
 export function signOut() {
   writeSession(null)
+  try {
+    const keysToRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith("oidc.user:") || key?.startsWith("oidc.")) {
+        keysToRemove.push(key)
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k))
+  } catch {
+    // ignore
+  }
 }
 
 /** A valid ID token for the API, refreshed when about to expire; null when signed out. */
 export async function getIdToken(): Promise<string | null> {
+  const oidcToken = getOidcIdToken()
+  if (oidcToken) return oidcToken
+
   const session = readSession()
   if (!session || !authEnabled()) return null
   if (session.expiresAt - 60_000 > Date.now()) return session.idToken
