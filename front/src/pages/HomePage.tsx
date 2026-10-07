@@ -10,6 +10,7 @@ import { SiteHeader } from "@/components/SiteHeader"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDeleteMeeting, useMeetings } from "@/hooks/useMeetings"
+import { isSignedIn } from "@/lib/auth"
 import type { Meeting } from "@/types"
 
 export function HomePage() {
@@ -21,12 +22,20 @@ export function HomePage() {
   const [pendingDelete, setPendingDelete] = useState<Meeting | null>(null)
 
   const openForm = (start?: Date) => {
+    if (!isSignedIn()) {
+      window.location.assign("/login/")
+      return
+    }
     setEditing(null)
     setFormStart(start)
     setFormOpen(true)
   }
 
   const openEdit = (meeting: Meeting) => {
+    if (!isSignedIn()) {
+      window.location.assign("/login/")
+      return
+    }
     setEditing(meeting)
     setFormOpen(true)
   }

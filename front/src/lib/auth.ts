@@ -20,8 +20,8 @@ export interface AuthConfig {
 export function getOidcConfig(): AuthProviderProps {
   const env = import.meta.env
   const region = env.VITE_COGNITO_REGION || "eu-north-1"
-  const userPoolId = env.VITE_COGNITO_USER_POOL_ID || ""
-  const clientId = env.VITE_COGNITO_CLIENT_ID || ""
+  const userPoolId = env.VITE_COGNITO_USER_POOL_ID || "eu-north-1_2JHnz3607"
+  const clientId = env.VITE_COGNITO_CLIENT_ID || "520q7rcdd0c5hf0ahk2adb8bm3"
   const authority =
     env.VITE_COGNITO_AUTHORITY ||
     (userPoolId ? `https://cognito-idp.${region}.amazonaws.com/${userPoolId}` : "")
@@ -88,21 +88,39 @@ export function getOidcEmail(): string | null {
   return null
 }
 
-export function getCognitoLogoutUrl(): string | null {
-  const { domain, clientId } = authConfig()
-  if (!domain || !clientId) return null
-  const domainClean = domain.replace(/^https?:\/\//, "").replace(/\/+$/, "")
-  const logoutUri = `${window.location.origin}/`
-  return `https://${domainClean}/logout?client_id=${encodeURIComponent(clientId)}&logout_uri=${encodeURIComponent(logoutUri)}`
+export function getCognitoLogoutUrl(): string {
+  const env = import.meta.env
+  const rawDomain =
+    authConfig().domain ||
+    env.VITE_COGNITO_DOMAIN ||
+    "anton-meetings-2026.auth.eu-north-1.amazoncognito.com"
+  const domain = rawDomain.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+  const clientId =
+    authConfig().clientId ||
+    env.VITE_COGNITO_CLIENT_ID ||
+    "520q7rcdd0c5hf0ahk2adb8bm3"
+  const origin = window.location.origin
+  const logoutUri = origin.includes("cloudfront.net")
+    ? "https://d1y19dbl226ufk.cloudfront.net/"
+    : `${origin}/`
+  return `https://${domain}/logout?client_id=${encodeURIComponent(clientId)}&logout_uri=${encodeURIComponent(logoutUri)}`
 }
 
 export function authConfig(): AuthConfig {
   const env = import.meta.env
+  if (env.MODE === "test" && !env.VITE_COGNITO_CLIENT_ID) {
+    return {
+      region: "eu-north-1",
+      clientId: "",
+      domain: "",
+      googleEnabled: false,
+    }
+  }
   return {
     region: env.VITE_COGNITO_REGION || "eu-north-1",
-    clientId: env.VITE_COGNITO_CLIENT_ID ?? "",
-    domain: env.VITE_COGNITO_DOMAIN ?? "",
-    googleEnabled: env.VITE_COGNITO_GOOGLE === "true" && Boolean(env.VITE_COGNITO_DOMAIN),
+    clientId: env.VITE_COGNITO_CLIENT_ID || "520q7rcdd0c5hf0ahk2adb8bm3",
+    domain: env.VITE_COGNITO_DOMAIN || "anton-meetings-2026.auth.eu-north-1.amazoncognito.com",
+    googleEnabled: true,
   }
 }
 
@@ -161,7 +179,6 @@ interface Session {
 }
 
 const SESSION_KEY = "meetings.session"
-const LOCAL_SESSION: Session = { idToken: "", expiresAt: Number.MAX_SAFE_INTEGER }
 
 function readSession(): Session | null {
   try {
@@ -195,22 +212,58 @@ function saveTokens(tokens: Tokens, previousRefresh?: string) {
   })
 }
 
-export const isSignedIn = () => getOidcIdToken() !== null || getOidcEmail() !== null
+const LOCAL_SESSION: Session = { idToken: "", expiresAt: Number.MAX_SAFE_INTEGER }
 
-export function signOut() {
+export const isSignedIn = () =>
+  readSession() !== null || getOidcIdToken() !== null || getOidcEmail() !== null
+
+export function clearAllAuthStorage() {
   writeSession(null)
   try {
-    const keysToRemove: string[] = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key?.startsWith("oidc.user:") || key?.startsWith("oidc.")) {
-        keysToRemove.push(key)
+    localStorage.clear()
+  } catch {
+    try {
+      const keys: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k) keys.push(k)
       }
+      keys.forEach((k) => localStorage.removeItem(k))
+    } catch {
+      // ignore
     }
-    keysToRemove.forEach((k) => localStorage.removeItem(k))
+  }
+
+  try {
+    sessionStorage.clear()
+  } catch {
+    try {
+      const keys: string[] = []
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i)
+        if (k) keys.push(k)
+      }
+      keys.forEach((k) => sessionStorage.removeItem(k))
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    document.cookie.split(";").forEach((cookie) => {
+      const eqPos = cookie.indexOf("=")
+      const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim()
+      if (name) {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
+      }
+    })
   } catch {
     // ignore
   }
+}
+
+export function signOut() {
+  clearAllAuthStorage()
 }
 
 /** A valid ID token for the API, refreshed when about to expire; null when signed out. */

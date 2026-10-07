@@ -48,7 +48,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Session gone or rejected: back to the sign-in page.
   if (response.status === 401) {
     signOut()
-    window.location.assign("/")
+    if (window.location.pathname !== "/" && window.location.pathname !== "/login/") {
+      window.location.assign("/")
+    }
   }
 
   if (!response.ok) {

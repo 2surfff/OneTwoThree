@@ -68,22 +68,21 @@ aws-deploy-auth deploy-auth: ## Deploy Cognito User Pool, Google IdP, Managed Lo
 	  --region $(AWS_REGION)
 	@echo "==> Cognito Auth stack deployed!"
 
-# Cognito Stack Outputs
-USER_POOL_ID          ?= eu-north-1_2JHnz3607
-USER_POOL_CLIENT_ID   ?= 520q7rcdd0c5hf0ahk2adb8bm3
-COGNITO_DOMAIN        ?= anton-meetings-2026.auth.eu-north-1.amazoncognito.com
-COGNITO_AUTHORITY     ?= https://cognito-idp.eu-north-1.amazonaws.com/eu-north-1_2JHnz3607
-
 ##@ Frontend Deployment
 
 .PHONY: aws-deploy-frontend deploy-frontend
 aws-deploy-frontend deploy-frontend: aws-deploy-auth ## Build frontend with Cognito config, sync to S3, invalidate CloudFront
-	@echo "==> Setting frontend Cognito configuration..."
-	@echo "UserPoolId:   $(USER_POOL_ID)"
-	@echo "ClientId:     $(USER_POOL_CLIENT_ID)"
-	@echo "AuthDomain:   $(COGNITO_DOMAIN)"
-	@echo "AuthorityUrl: $(COGNITO_AUTHORITY)"
-	@node -e "const fs=require('fs'); fs.writeFileSync('front/.env.production', 'VITE_COGNITO_REGION=$(AWS_REGION)\nVITE_COGNITO_USER_POOL_ID=$(USER_POOL_ID)\nVITE_COGNITO_CLIENT_ID=$(USER_POOL_CLIENT_ID)\nVITE_COGNITO_DOMAIN=$(COGNITO_DOMAIN)\nVITE_COGNITO_AUTHORITY=$(COGNITO_AUTHORITY)\nVITE_COGNITO_GOOGLE=true\nVITE_API_URL=\n');"
+	@echo "==> Retrieving Cognito configuration from stack $(AUTH_STACK)..."
+	$(eval POOL_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text))
+	$(eval CLIENT_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text))
+	$(eval DOMAIN := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AuthDomain'].OutputValue" --output text))
+	$(eval AUTH_URL := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AuthorityUrl'].OutputValue" --output text))
+	@echo "UserPoolId:   $(POOL_ID)"
+	@echo "ClientId:     $(CLIENT_ID)"
+	@echo "AuthDomain:   $(DOMAIN)"
+	@echo "AuthorityUrl: $(AUTH_URL)"
+	@echo "==> Generating frontend environment configuration..."
+	@node -e "const fs=require('fs'); fs.writeFileSync('front/.env.production', 'VITE_COGNITO_REGION=$(AWS_REGION)\nVITE_COGNITO_USER_POOL_ID=$(POOL_ID)\nVITE_COGNITO_CLIENT_ID=$(CLIENT_ID)\nVITE_COGNITO_DOMAIN=$(DOMAIN)\nVITE_COGNITO_AUTHORITY=$(AUTH_URL)\nVITE_COGNITO_GOOGLE=true\nVITE_API_URL=\n');"
 	@echo "==> Building frontend..."
 	cd front && npm run build
 	@echo "==> Syncing to S3 bucket $(S3_BUCKET)..."

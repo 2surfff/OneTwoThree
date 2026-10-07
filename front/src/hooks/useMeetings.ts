@@ -1,12 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { api } from "@/lib/api"
+import { isSignedIn } from "@/lib/auth"
 import type { Meeting } from "@/types"
 
 export const meetingsKey = ["meetings"] as const
 
 export function useMeetings() {
-  return useQuery({ queryKey: meetingsKey, queryFn: api.listMeetings })
+  const signedIn = isSignedIn()
+  return useQuery({
+    queryKey: meetingsKey,
+    queryFn: api.listMeetings,
+    enabled: signedIn,
+    initialData: signedIn ? undefined : [],
+  })
 }
 
 export function useCreateMeeting() {
