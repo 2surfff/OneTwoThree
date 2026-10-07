@@ -46,16 +46,34 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Build frontend
-        run: npm run build
-        env:
-          VITE_API_URL: ${{ env.VITE_API_URL }}
-
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::334177992228:role/github-actions-deploy-role
           aws-region: eu-north-1
+
+      - name: Fetch Cognito outputs
+        id: cognito
+        run: |
+          POOL_ID=$(aws cloudformation describe-stacks --stack-name meetings-auth --region eu-north-1 --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text 2>/dev/null || echo "eu-north-1_2JHnz3607")
+          CLIENT_ID=$(aws cloudformation describe-stacks --stack-name meetings-auth --region eu-north-1 --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text 2>/dev/null || echo "520q7rcdd0c5hf0ahk2adb8bm3")
+          DOMAIN=$(aws cloudformation describe-stacks --stack-name meetings-auth --region eu-north-1 --query "Stacks[0].Outputs[?OutputKey=='AuthDomain'].OutputValue" --output text 2>/dev/null || echo "anton-meetings-2026.auth.eu-north-1.amazoncognito.com")
+          AUTH_URL=$(aws cloudformation describe-stacks --stack-name meetings-auth --region eu-north-1 --query "Stacks[0].Outputs[?OutputKey=='AuthorityUrl'].OutputValue" --output text 2>/dev/null || echo "https://cognito-idp.eu-north-1.amazonaws.com/eu-north-1_2JHnz3607")
+          echo "pool_id=$POOL_ID" >> "$GITHUB_OUTPUT"
+          echo "client_id=$CLIENT_ID" >> "$GITHUB_OUTPUT"
+          echo "domain=$DOMAIN" >> "$GITHUB_OUTPUT"
+          echo "auth_url=$AUTH_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ env.VITE_API_URL }}
+          VITE_COGNITO_REGION: eu-north-1
+          VITE_COGNITO_USER_POOL_ID: ${{ steps.cognito.outputs.pool_id }}
+          VITE_COGNITO_CLIENT_ID: ${{ steps.cognito.outputs.client_id }}
+          VITE_COGNITO_DOMAIN: ${{ steps.cognito.outputs.domain }}
+          VITE_COGNITO_AUTHORITY: ${{ steps.cognito.outputs.auth_url }}
+          VITE_COGNITO_GOOGLE: "true"
 
       - name: Sync static files to S3
         run: |
