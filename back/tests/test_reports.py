@@ -1,8 +1,7 @@
 """Unit tests for Lab 5 weekly reports generator and Lambda handlers."""
 
-import io
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,6 +13,8 @@ from app.models import Meeting, Participant, User
 from app.reports.lambda_handler import (
     detect_trigger,
     get_previous_iso_week,
+)
+from app.reports.lambda_handler import (
     handler as builder_handler,
 )
 from app.reports.mailer_handler import handler as mailer_handler
@@ -90,8 +91,8 @@ def test_build_weekly_report_with_meetings(sqlite_session):
     # Previous week meeting: 1 hour
     m_prev = Meeting(
         title="Prev Planning",
-        starts_at=datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc),
-        ends_at=datetime(2026, 9, 22, 11, 0, tzinfo=timezone.utc),
+        starts_at=datetime(2026, 9, 22, 10, 0, tzinfo=UTC),
+        ends_at=datetime(2026, 9, 22, 11, 0, tzinfo=UTC),
         owner_id=user.id,
     )
     sqlite_session.add(m_prev)
@@ -99,16 +100,16 @@ def test_build_weekly_report_with_meetings(sqlite_session):
     # Current week meeting 1: 2 hours, 2 participants
     m1 = Meeting(
         title="Architecture Review",
-        starts_at=datetime(2026, 9, 29, 14, 0, tzinfo=timezone.utc),
-        ends_at=datetime(2026, 9, 29, 16, 0, tzinfo=timezone.utc),
+        starts_at=datetime(2026, 9, 29, 14, 0, tzinfo=UTC),
+        ends_at=datetime(2026, 9, 29, 16, 0, tzinfo=UTC),
         owner_id=user.id,
         participants=[p1, p2],
     )
     # Current week meeting 2: 3 hours, 1 participant
     m2 = Meeting(
         title="Deep Dive Workshop",
-        starts_at=datetime(2026, 9, 30, 9, 0, tzinfo=timezone.utc),
-        ends_at=datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc),
+        starts_at=datetime(2026, 9, 30, 9, 0, tzinfo=UTC),
+        ends_at=datetime(2026, 9, 30, 12, 0, tzinfo=UTC),
         owner_id=user.id,
         participants=[p1],
     )
@@ -248,4 +249,3 @@ def test_mailer_handler():
         call_kwargs = mock_ses.send_email.call_args[1]
         assert call_kwargs["Destination"]["ToAddresses"] == ["test@example.com"]
         assert b"Weekly Meetings Report: 2026-W40.csv" in call_kwargs["Content"]["Raw"]["Data"]
-

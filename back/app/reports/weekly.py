@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -85,7 +85,7 @@ def build_weekly_report(week: str, session: Session | None = None) -> bytes:
     year, week_num, normalized_week = parse_iso_week(week)
 
     # Current week date boundaries (Monday 00:00:00 UTC to next Monday 00:00:00 UTC)
-    start_current = datetime.fromisocalendar(year, week_num, 1).replace(tzinfo=timezone.utc)
+    start_current = datetime.fromisocalendar(year, week_num, 1).replace(tzinfo=UTC)
     end_current = start_current + timedelta(days=7)
 
     # Previous week date boundaries
@@ -113,6 +113,7 @@ def build_weekly_report(week: str, session: Session | None = None) -> bytes:
             prev_meetings = list(db.scalars(stmt_prev).all())
         except Exception as exc:
             import logging
+
             logging.getLogger("weekly-report").warning(
                 "Database query failed (%s); generating report with empty meetings", exc
             )
@@ -132,7 +133,7 @@ def build_weekly_report(week: str, session: Session | None = None) -> bytes:
         # Top-5 longest meetings for the current week
         top_5_meetings = sorted(
             current_meetings,
-            key=lambda m: (_calc_duration_hours(m), m.starts_at or datetime.min.replace(tzinfo=timezone.utc)),
+            key=lambda m: (_calc_duration_hours(m), m.starts_at or datetime.min.replace(tzinfo=UTC)),
             reverse=True,
         )[:5]
 
@@ -142,7 +143,13 @@ def build_weekly_report(week: str, session: Session | None = None) -> bytes:
 
         # 1. Summary comparison table
         writer.writerow(
-            ["Metric", f"Current Week ({normalized_week})", f"Previous Week ({prev_week_str})", "Delta", "Change (%)"]
+            [
+                "Metric",
+                f"Current Week ({normalized_week})",
+                f"Previous Week ({prev_week_str})",
+                "Delta",
+                "Change (%)",
+            ]
         )
         writer.writerow(
             [
@@ -180,4 +187,3 @@ def build_weekly_report(week: str, session: Session | None = None) -> bytes:
 
     with SessionLocal() as db:
         return _generate(db)
-

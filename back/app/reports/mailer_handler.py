@@ -74,12 +74,14 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
             Destination={"ToAddresses": [recipient_email]},
             Content={"Raw": {"Data": msg.as_bytes()}},
         )
-
-        log.info("report-mailer sent email: %s", filename, extra={"recipient": recipient_email, "file": filename})
+        log.info(
+            "report-mailer sent email: %s",
+            filename,
+            extra={"recipient": recipient_email, "file": filename},
+        )
         sent.append({"bucket": bucket, "key": key, "recipient": recipient_email})
 
     return {
         "statusCode": 200,
         "sent": sent,
     }
-

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import boto3
@@ -24,7 +24,7 @@ if not log.handlers:
 
 def get_previous_iso_week() -> str:
     """Calculate the previous ISO week string (e.g. '2026-W39')."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     prev = now - timedelta(days=7)
     iso_year, iso_week, _ = prev.isocalendar()
     return f"{iso_year}-W{iso_week:02d}"
@@ -82,11 +82,7 @@ def _extract_week_and_source(event: dict[str, Any]) -> list[tuple[str, str]]:
 
 def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     """Lambda entry point for Report Builder."""
-    bucket_name = (
-        os.environ.get("REPORTS_BUCKET")
-        or os.environ.get("REPORTS_BUCKET_NAME")
-        or ""
-    )
+    bucket_name = os.environ.get("REPORTS_BUCKET") or os.environ.get("REPORTS_BUCKET_NAME") or ""
     if not bucket_name:
         raise ValueError("REPORTS_BUCKET environment variable is not configured.")
 
@@ -122,4 +118,3 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         "statusCode": 200,
         "processed": processed,
     }
-
