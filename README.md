@@ -254,12 +254,64 @@ npm run typecheck
 
 ---
 
-## 6. Висновок
+## 6. Лабораторна робота 5: Подієво-орієнтовані щотижневі звіти (Event-Driven Reports)
 
-Усі вимоги лабораторної роботи виконано у повному обсязі:
+Реалізовано асинхронну подієво-орієнтовану систему генерації та доставки щотижневих звітів про зустрічі:
+
+```mermaid
+flowchart LR
+    Scheduler["EventBridge Scheduler\n(cron щопонеділка 07:00 Kyiv)"]
+    SQS["Amazon SQS\n(meetings-report-requests)"]
+    DLQ["Amazon SQS DLQ\n(meetings-report-requests-dlq)"]
+    Builder["Report Builder Lambda\n(Inside VPC, Docker)"]
+    VpcEndpoint["S3 Gateway VPC Endpoint\n(com.amazonaws.eu-north-1.s3)"]
+    S3[("Amazon S3 Reports Bucket\nmeetings-reports-334177992228")]
+    Mailer["Report Mailer Lambda\n(Outside VPC, Python 3.12)"]
+    SES["Amazon SES (sesv2)"]
+    Recipient["Отримувач звіту\n(antonv.lviv@gmail.com)"]
+
+    Scheduler -->|cron trigger| SQS
+    SQS -->|EventSourceMapping (batch=1)| Builder
+    SQS -.->|maxReceiveCount: 3| DLQ
+    Builder -->|Запит до Aurora| DB[(Aurora Serverless v2)]
+    Builder -->|Upload CSV| VpcEndpoint
+    VpcEndpoint --> S3
+    S3 -->|s3:ObjectCreated:*| Mailer
+    Mailer -->|sesv2:SendEmail (MIME attachment)| SES
+    SES --> Recipient
+```
+
+### Компоненти системи:
+1. **Report Builder Lambda** (`back/app/reports/lambda_handler.py`):
+   - Працює **всередині VPC** (приватні підмережі, Security Group з доступом до БД).
+   - Базується на Docker-образі `meetings-backend:lambda-latest`.
+   - Запитує БД через SQLAlchemy, рахує метрики поточного та попереднього ISO тижнів (кількість, тривалість, дельти, топ-5 найдовших зустрічей).
+   - Завантажує `reports/<WEEK>.csv` в S3 через безкоштовний **Gateway VPC Endpoint** без використання NAT Gateway.
+2. **Report Mailer Lambda** (`back/app/reports/mailer_handler.py`):
+   - Працює **поза VPC** з прямим доступом до AWS SES.
+   - Тригериться подією `s3:ObjectCreated:*` на створення CSV-файлів у префіксі `reports/`.
+   - Завантажує CSV, формує MIME-лист з вкладенням (`EmailMessage`) та відправляє через `boto3.client('sesv2').send_email`.
+3. **EventBridge Scheduler & SQS Queue**:
+   - Розклад: `cron(0 7 ? * MON *)` у часовому поясі `Europe/Kyiv`.
+   - Черга `meetings-report-requests` з `VisibilityTimeout = 360s` та `RedrivePolicy` з `maxReceiveCount = 3` до DLQ.
+4. **Команди для запуску та тестування**:
+   - Деплой інфраструктури:
+     ```bash
+     make aws-deploy-reports
+     ```
+   - Запит на генерацію звіту на вимогу (on-demand):
+     ```bash
+     make report-now WEEK=2026-W40
+     ```
+
+---
+
+## 7. Висновок
+
+Усі вимоги лабораторних робіт виконано у повному обсязі:
 1. Досліджено структуру проєкту та налаштовано строгий контроль коду через **Ruff**, **ESLint** та **Prettier**.
-2. Створено GitHub Actions CI пайплайн `lint.yml` та перевірено поведінку на навмисній помилці (червоний білд).
+2. Створено GitHub Actions CI пайплайн `lint.yml` та перевірено поведінку на навмисній помилці.
 3. Сформовано єдиний контракт деплою у вигляді `Makefile`.
-4. Розгорнуто сучасну хмарну інфраструктуру в **AWS (eu-north-1)** на базі S3, CloudFront (OAC + Reverse Proxy), ALB, Security Groups та ECS Fargate.
-5. Забезпечено найвищий рівень безпеки за допомогою **GitHub Actions OIDC** автентифікації без збереження статичних AWS ключів.
-6. Налаштовано повноцінний CD пайплайн `deploy.yml`, що автоматично синхронізує код та оновлює сервіси в хмарі.
+4. Розгорнуто хмарну інфраструктуру в **AWS (eu-north-1)** на базі S3, CloudFront, ALB, ECS Fargate та Cognito User Pool.
+5. Забезпечено рівень безпеки за допомогою **GitHub Actions OIDC** без статичних ключів.
+6. Реалізовано подієво-орієнтований конвеєр **Lab 5** (EventBridge Scheduler -> SQS -> Report Builder Lambda у VPC -> S3 Gateway Endpoint -> S3 -> Mailer Lambda -> SES).
