@@ -46,6 +46,14 @@ ALB_SG                ?= sg-06257b3ed60d576f7
 ECS_SG                ?= sg-03ae0158551fe30b0
 TG_ARN                ?= arn:aws:elasticloadbalancing:eu-north-1:334177992228:targetgroup/meetings-backend-tg/71809a34245ffbb2
 
+# Reports & Notifications (Lab 5)
+REPORTS_STACK         ?= $(PROJECT)-reports
+REPORTS_BUCKET        ?= $(PROJECT)-reports-$(AWS_ACCOUNT_ID)
+RECIPIENT_EMAIL       ?= antonv.lviv@gmail.com
+ROUTE_TABLE_ID        ?= rtb-0a98ee50f7221eea7
+LAMBDA_IMAGE_URI      ?= $(ECR_URI):lambda-latest
+WEEK                  ?=
+
 # Commit SHA for image tagging
 TAG                   ?= $(shell git rev-parse --short HEAD)
 
@@ -171,6 +179,35 @@ infra-ecs: ## Create ECS Cluster, Task Definition, and Service
 	  --network-configuration "awsvpcConfiguration={subnets=[$(SUBNET_1),$(SUBNET_2)],securityGroups=[$(ECS_SG)],assignPublicIp=ENABLED}" \
 	  --load-balancers "targetGroupArn=$(TG_ARN),containerName=backend,containerPort=8000" --region $(AWS_REGION)
 
+##@ Lab 5: Weekly Reports
+
+.PHONY: aws-deploy-reports deploy-reports
+aws-deploy-reports deploy-reports: ## Deploy Lab 5 Reports stack (S3, SQS, DLQ, Lambda, SES, Scheduler)
+	@echo "==> Deploying Reports stack ($(REPORTS_STACK))..."
+	aws cloudformation deploy \
+	  --template-file infra/reports.yml \
+	  --stack-name $(REPORTS_STACK) \
+	  --parameter-overrides \
+	    ProjectName=$(PROJECT) \
+	    VpcId=$(VPC_ID) \
+	    SubnetIds="$(SUBNET_1),$(SUBNET_2)" \
+	    SecurityGroupId=$(ECS_SG) \
+	    ReportsBucketName=$(REPORTS_BUCKET) \
+	    RecipientEmail="$(RECIPIENT_EMAIL)" \
+	    ImageUri="$(LAMBDA_IMAGE_URI)" \
+	    RouteTableIds="$(ROUTE_TABLE_ID)" \
+	  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+	  --no-fail-on-empty-changeset \
+	  --region $(AWS_REGION)
+	@echo "==> Reports stack deployed successfully!"
+
+.PHONY: report-now
+report-now: ## Send on-demand report generation request to SQS (e.g. make report-now WEEK=2026-W40)
+	$(eval QUEUE_URL := $(shell aws cloudformation describe-stacks --stack-name $(REPORTS_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='ReportRequestsQueueUrl'].OutputValue" --output text))
+	@echo "==> Sending report request to SQS ($(QUEUE_URL)) for week '$(WEEK)'..."
+	aws sqs send-message --queue-url $(QUEUE_URL) --message-body "{\"week\":\"$(WEEK)\", \"source\":\"on-demand\"}" --region $(AWS_REGION)
+	@echo "==> Message successfully sent to SQS queue!"
+
 ##@ Status
 
 .PHONY: status
@@ -191,6 +228,10 @@ status: ## Show all resource IDs and endpoints
 	@echo "ECS Cluster:     $(ECS_CLUSTER)"
 	@echo "ECS Service:     $(ECS_SERVICE)"
 	@echo "ALB DNS:         meetings-alb-1279017703.eu-north-1.elb.amazonaws.com"
+	@echo "--- Reports (Lab 5) ---"
+	@echo "Reports Stack:   $(REPORTS_STACK)"
+	@echo "Reports Bucket:  $(REPORTS_BUCKET)"
+	@echo "Recipient Email: $(RECIPIENT_EMAIL)"
 	@echo "--- Security & CI/CD ---"
 	@echo "OIDC Role ARN:   arn:aws:iam::334177992228:role/github-actions-deploy-role"
 	@echo "ALB SG:          $(ALB_SG)"
@@ -206,5 +247,7 @@ help: ## Show this help
 	@echo "  make aws-deploy-frontend - Build frontend with Cognito config, sync to S3, invalidate CloudFront"
 	@echo "  make deploy-frontend     - Alias for aws-deploy-frontend"
 	@echo "  make deploy-backend      - Build Docker image, push to ECR, update ECS"
+	@echo "  make aws-deploy-reports  - Deploy Lab 5 Reports stack (S3, SQS, DLQ, Lambda, SES, Scheduler)"
+	@echo "  make report-now          - Request on-demand report generation via SQS (pass WEEK=...)"
 	@echo "  make deploy-all          - Run full deploy pipeline (auth -> frontend -> backend)"
 	@echo "  make status              - Show resource IDs and endpoints"
