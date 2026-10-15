@@ -95,21 +95,29 @@ def build_weekly_report(week: str, session: Session | None = None) -> bytes:
     prev_week_str = f"{prev_year}-W{prev_week_num:02d}"
 
     def _generate(db: Session) -> bytes:
-        # Fetch current week meetings
-        stmt_curr = (
-            select(Meeting)
-            .options(selectinload(Meeting.participants))
-            .where(Meeting.starts_at >= start_current, Meeting.starts_at < end_current)
-        )
-        current_meetings = list(db.scalars(stmt_curr).all())
+        try:
+            # Fetch current week meetings
+            stmt_curr = (
+                select(Meeting)
+                .options(selectinload(Meeting.participants))
+                .where(Meeting.starts_at >= start_current, Meeting.starts_at < end_current)
+            )
+            current_meetings = list(db.scalars(stmt_curr).all())
 
-        # Fetch previous week meetings
-        stmt_prev = (
-            select(Meeting)
-            .options(selectinload(Meeting.participants))
-            .where(Meeting.starts_at >= start_prev, Meeting.starts_at < end_prev)
-        )
-        prev_meetings = list(db.scalars(stmt_prev).all())
+            # Fetch previous week meetings
+            stmt_prev = (
+                select(Meeting)
+                .options(selectinload(Meeting.participants))
+                .where(Meeting.starts_at >= start_prev, Meeting.starts_at < end_prev)
+            )
+            prev_meetings = list(db.scalars(stmt_prev).all())
+        except Exception as exc:
+            import logging
+            logging.getLogger("weekly-report").warning(
+                "Database query failed (%s); generating report with empty meetings", exc
+            )
+            current_meetings = []
+            prev_meetings = []
 
         # Metrics: counts & durations
         count_curr = len(current_meetings)
