@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
@@ -13,7 +14,15 @@ TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql+psycopg://meetings:meetings@localhost:5432/meetings_test"
 )
 
-engine = create_engine(TEST_DATABASE_URL)
+if TEST_DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+else:
+    engine = create_engine(TEST_DATABASE_URL)
+
 TestingSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
@@ -37,4 +46,8 @@ def client() -> Iterator[TestClient]:
     app.dependency_overrides.clear()
 
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE meeting_participants, meetings, participants, users"))
+        if engine.dialect.name == "sqlite":
+            for table in reversed(Base.metadata.sorted_tables):
+                conn.execute(table.delete())
+        else:
+            conn.execute(text("TRUNCATE meeting_participants, meetings, participants, users"))

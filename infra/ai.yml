@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Meetings App - Lab 6: Serverless Agenda Parser running outside VPC with direct
+  access to Amazon Bedrock (Anthropic Claude), exposed via Lambda Function URL with
+  Cognito Bearer token authentication and CORS.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: meetings
+    Description: Project name prefix for resources.
+
+  CognitoUserPoolId:
+    Type: String
+    Default: eu-north-1_2JHnz3607
+    Description: Cognito User Pool ID used for JWT verification.
+
+  CognitoRegion:
+    Type: String
+    Default: eu-north-1
+    Description: AWS region where Cognito User Pool is located.
+
+  CognitoClientId:
+    Type: String
+    Default: 520q7rcdd0c5hf0ahk2adb8bm3
+    Description: Cognito User Pool App Client ID.
+
+  FrontendDomain:
+    Type: String
+    Default: d1y19dbl226ufk.cloudfront.net
+    Description: CloudFront frontend domain for CORS configuration.
+
+  ImageUri:
+    Type: String
+    Default: 334177992228.dkr.ecr.eu-north-1.amazonaws.com/meetings-backend:lambda-latest
+    Description: ECR Docker image URI containing the backend and Lambda handler.
+
+  ParserModel:
+    Type: String
+    Default: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    Description: Anthropic Claude model ID in Amazon Bedrock.
+
+  ParserRegion:
+    Type: String
+    Default: us-east-1
+    Description: AWS Region where Bedrock foundation models are invoked.
+
+Resources:
+  # =========================================================================
+  # 1. IAM Execution Role for Agenda Parser Lambda
+  # =========================================================================
+  AgendaParserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-agenda-parser-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockInvoke
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: "*"
+
+  # =========================================================================
+  # 2. Serverless Lambda Function (Outside VPC, Direct Internet / Bedrock)
+  # =========================================================================
+  AgendaParserFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-agenda-parser"
+      Description: "Lab 6: LLM Agenda Parser powered by Claude on Bedrock"
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command:
+          - app.ai.agenda_lambda.handler
+      MemorySize: 512
+      Timeout: 30
+      Role: !GetAtt AgendaParserRole.Arn
+      Environment:
+        Variables:
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          PARSER_MODEL: !Ref ParserModel
+          PARSER_REGION: !Ref ParserRegion
+          ALLOWED_ORIGIN: !Sub "https://${FrontendDomain}"
+
+  # =========================================================================
+  # 3. Lambda Function URL (Public with AuthType NONE, JWT verified in code)
+  # =========================================================================
+  AgendaParserFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt AgendaParserFunction.Arn
+      AuthType: NONE
+      Cors:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - POST
+        AllowHeaders:
+          - authorization
+          - content-type
+          - accept
+          - x-requested-with
+        MaxAge: 86400
+
+  AgendaParserFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !GetAtt AgendaParserFunction.Arn
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+Outputs:
+  AgendaParserFunctionUrl:
+    Description: Direct HTTPS endpoint URL for the Agenda Parser Lambda
+    Value: !GetAtt AgendaParserFunctionUrl.FunctionUrl
+
+  AgendaParserFunctionArn:
+    Description: ARN of the Agenda Parser Lambda function
+    Value: !GetAtt AgendaParserFunction.Arn

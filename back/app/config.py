@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     # when empty it is downloaded from the issuer on first use.
     cognito_jwks: str = ""
 
+    # Lab 6 AI Agenda Parser settings
+    parser_model: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    parser_region: str = "us-east-1"
+    prompt_version: str = "agenda-v1"
+
+    @property
+    def PARSER_MODEL(self) -> str:
+        return self.parser_model
+
     @property
     def sqlalchemy_url(self) -> URL:
         if self.database_url:

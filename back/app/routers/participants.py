@@ -8,7 +8,7 @@ from app.auth import get_current_user
 from app.db import get_db
 from app.schemas import ParticipantCreate, ParticipantRead
 from app.services import participants as service
-from app.services.errors import NotFoundError
+from app.services.errors import ConflictError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,8 @@ def list_participants(q: str | None = None, db: Session = Depends(get_db)):
 def create_participant(data: ParticipantCreate, db: Session = Depends(get_db)):
     try:
         return service.create_participant(db, data)
+    except ConflictError:
+        raise
     except Exception as exc:
         logger.warning("Database unavailable in create_participant: %s", exc)
         return ParticipantRead(id=uuid4(), name=data.name, email=data.email)

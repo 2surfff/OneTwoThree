@@ -1,30 +1,34 @@
 import { useEffect, useRef } from "react"
 import { LoaderCircle } from "lucide-react"
+import { useAuth } from "react-oidc-context"
 import { useNavigate } from "react-router"
 
 import { AuthLayout } from "@/components/auth/AuthLayout"
-import { getOidcEmail } from "@/lib/auth"
-import { useSafeAuth } from "@/lib/useSafeAuth"
+import { authEnabled } from "@/lib/auth"
 
 export function OidcLoginPage() {
-  const auth = useSafeAuth()
+  const auth = useAuth()
   const navigate = useNavigate()
   const redirectTriggered = useRef(false)
-  const userEmail = (auth?.user?.profile?.email as string | undefined) ?? getOidcEmail()
 
   useEffect(() => {
-    if (auth?.isAuthenticated || userEmail) {
-      navigate("/", { replace: true })
+    if (!authEnabled()) {
+      navigate("/home", { replace: true })
       return
     }
 
-    if (!auth?.isLoading && !redirectTriggered.current) {
+    if (auth.isAuthenticated) {
+      navigate("/home", { replace: true })
+      return
+    }
+
+    if (!auth.isLoading && !redirectTriggered.current) {
       redirectTriggered.current = true
-      auth?.signinRedirect?.().catch((err: unknown) => {
+      auth.signinRedirect().catch((err: unknown) => {
         console.error("Failed to redirect to Cognito login:", err)
       })
     }
-  }, [auth?.isAuthenticated, auth?.isLoading, auth, userEmail, navigate])
+  }, [auth.isAuthenticated, auth.isLoading, auth, navigate])
 
   return (
     <AuthLayout>
@@ -38,7 +42,7 @@ export function OidcLoginPage() {
           type="button"
           onClick={() => {
             redirectTriggered.current = true
-            auth?.signinRedirect?.().catch((err: unknown) => {
+            auth.signinRedirect().catch((err: unknown) => {
               console.error("Failed to redirect to Cognito login:", err)
             })
           }}

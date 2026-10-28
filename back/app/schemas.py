@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import (
@@ -8,6 +9,7 @@ from pydantic import (
     EmailStr,
     Field,
     HttpUrl,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -58,6 +60,30 @@ class UserUpdate(BaseModel):
         return _blank_to_none(value)
 
 
+# Lab 6 Agenda Schemas
+class AgendaItemSchema(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(min_length=1)
+    duration_minutes: int | None = None
+    description: str | None = None
+
+
+class ActionItemSchema(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    task: str = Field(min_length=1)
+    assignee: str | None = None
+    due_date: str | None = None
+
+
+class SaveAgendaRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    agenda: dict[str, Any] | None = None
+    ai_suggestion: dict[str, Any] | None = None
+
+
 class MeetingCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -68,6 +94,8 @@ class MeetingCreate(BaseModel):
     starts_at: AwareDatetime
     ends_at: AwareDatetime
     participant_ids: list[UUID] = []
+    agenda: dict[str, Any] | None = None
+    ai_suggestion: dict[str, Any] | None = None
 
     @field_validator("description", "call_link", "place", mode="before")
     @classmethod
@@ -100,3 +128,11 @@ class MeetingRead(BaseModel):
     owner_id: UUID | None
     participants: list[ParticipantRead]
     created_at: datetime
+    agenda: dict[str, Any] | None = None
+    ai_suggestion: dict[str, Any] | None = None
+
+    @field_serializer("starts_at", "ends_at")
+    def serialize_datetime(self, dt: datetime) -> str:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.isoformat().replace("+00:00", "Z")

@@ -4,8 +4,11 @@
 #         make aws-deploy-frontend (build frontend with Cognito config, sync to S3, invalidate CloudFront)
 #         make deploy-frontend     (alias for aws-deploy-frontend, runs auth first)
 #         make deploy-backend      (ECR login, Docker build, push, ECS redeploy)
+#         make aws-deploy-ai       (deploy Lab 6 Serverless Bedrock Agenda Parser stack)
+#         make parse TEXT="..."    (test local LLM agenda parser)
+#         make llm-hello           (smoke test Bedrock invocation in us-east-1)
 #         make deploy-infra        (one-time: create all AWS resources)
-#         make deploy-all          (full deployment pipeline: auth -> frontend -> backend)
+#         make deploy-all          (full deployment pipeline: auth -> ai -> frontend -> backend)
 # ============================================================================
 .DEFAULT_GOAL := help
 
@@ -46,13 +49,12 @@ ALB_SG                ?= sg-06257b3ed60d576f7
 ECS_SG                ?= sg-03ae0158551fe30b0
 TG_ARN                ?= arn:aws:elasticloadbalancing:eu-north-1:334177992228:targetgroup/meetings-backend-tg/71809a34245ffbb2
 
-# Reports & Notifications (Lab 5)
-REPORTS_STACK         ?= $(PROJECT)-reports
-REPORTS_BUCKET        ?= $(PROJECT)-reports-$(AWS_ACCOUNT_ID)
-RECIPIENT_EMAIL       ?= antonv.lviv@gmail.com
-ROUTE_TABLE_ID        ?= rtb-0a98ee50f7221eea7
-LAMBDA_IMAGE_URI      ?= $(ECR_URI):lambda-latest
-WEEK                  ?=
+# AI & Agenda Parser (Lab 6)
+AI_STACK              ?= $(PROJECT)-ai
+PARSER_MODEL          ?= us.anthropic.claude-haiku-4-5-20251001-v1:0
+PARSER_REGION         ?= us-east-1
+TEXT                  ?=
+PYTHON                ?= uv run --project back python
 
 # Commit SHA for image tagging
 TAG                   ?= $(shell git rev-parse --short HEAD)
@@ -85,12 +87,14 @@ aws-deploy-frontend deploy-frontend: aws-deploy-auth ## Build frontend with Cogn
 	$(eval CLIENT_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text))
 	$(eval DOMAIN := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AuthDomain'].OutputValue" --output text))
 	$(eval AUTH_URL := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AuthorityUrl'].OutputValue" --output text))
+	$(eval PARSER_URL := $(shell aws cloudformation describe-stacks --stack-name $(AI_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AgendaParserFunctionUrl'].OutputValue" --output text 2>/dev/null || echo ""))
 	@echo "UserPoolId:   $(POOL_ID)"
 	@echo "ClientId:     $(CLIENT_ID)"
 	@echo "AuthDomain:   $(DOMAIN)"
 	@echo "AuthorityUrl: $(AUTH_URL)"
+	@echo "ParserUrl:    $(PARSER_URL)"
 	@echo "==> Generating frontend environment configuration..."
-	@node -e "const fs=require('fs'); fs.writeFileSync('front/.env.production', 'VITE_COGNITO_REGION=$(AWS_REGION)\nVITE_COGNITO_USER_POOL_ID=$(POOL_ID)\nVITE_COGNITO_CLIENT_ID=$(CLIENT_ID)\nVITE_COGNITO_DOMAIN=$(DOMAIN)\nVITE_COGNITO_AUTHORITY=$(AUTH_URL)\nVITE_COGNITO_GOOGLE=true\nVITE_API_URL=\n');"
+	@node -e "const fs=require('fs'); fs.writeFileSync('front/.env.production', 'VITE_COGNITO_REGION=$(AWS_REGION)\nVITE_COGNITO_USER_POOL_ID=$(POOL_ID)\nVITE_COGNITO_CLIENT_ID=$(CLIENT_ID)\nVITE_COGNITO_DOMAIN=$(DOMAIN)\nVITE_COGNITO_AUTHORITY=$(AUTH_URL)\nVITE_COGNITO_GOOGLE=true\nVITE_API_URL=\nVITE_AGENDA_PARSER_URL=$(PARSER_URL)\n');"
 	@echo "==> Building frontend..."
 	cd front && npm run build
 	@echo "==> Syncing to S3 bucket $(S3_BUCKET)..."
@@ -122,7 +126,7 @@ deploy-backend: ## Login to ECR, build Docker image, push with commit SHA tag, u
 ##@ Pipeline
 
 .PHONY: deploy-all
-deploy-all: aws-deploy-auth aws-deploy-frontend deploy-backend ## Full deployment pipeline: auth -> frontend -> backend
+deploy-all: aws-deploy-auth aws-deploy-ai aws-deploy-frontend deploy-backend ## Full deployment pipeline: auth -> ai -> frontend -> backend
 
 ##@ Infrastructure (one-time setup)
 
@@ -179,34 +183,41 @@ infra-ecs: ## Create ECS Cluster, Task Definition, and Service
 	  --network-configuration "awsvpcConfiguration={subnets=[$(SUBNET_1),$(SUBNET_2)],securityGroups=[$(ECS_SG)],assignPublicIp=ENABLED}" \
 	  --load-balancers "targetGroupArn=$(TG_ARN),containerName=backend,containerPort=8000" --region $(AWS_REGION)
 
-##@ Lab 5: Weekly Reports
+##@ Lab 6: AI Agenda Parser
 
-.PHONY: aws-deploy-reports deploy-reports
-aws-deploy-reports deploy-reports: ## Deploy Lab 5 Reports stack (S3, SQS, DLQ, Lambda, SES, Scheduler)
-	@echo "==> Deploying Reports stack ($(REPORTS_STACK))..."
+.PHONY: llm-hello
+llm-hello: ## Smoke test Bedrock invocation using Claude in us-east-1
+	@echo "==> Testing Bedrock Claude invocation in $(PARSER_REGION) ($(PARSER_MODEL))..."
+	@cd back && uv run python -c "import boto3, json; client=boto3.client('bedrock-runtime', region_name='$(PARSER_REGION)'); res=client.invoke_model(modelId='$(PARSER_MODEL)', body=json.dumps({'anthropic_version':'bedrock-2023-05-31','max_tokens':100,'messages':[{'role':'user','content':'Hello Claude! Return JSON {\"status\":\"ok\"}'}]})); print(res['body'].read().decode('utf-8'))"
+
+.PHONY: parse
+parse: ## Parse unstructured meeting text using local agenda parser (e.g. make parse TEXT="Пн 10:00, синк по прайсингу")
+	@echo "==> Parsing meeting text with Bedrock model $(PARSER_MODEL)..."
+	@cd back && uv run python -m app.ai.agenda_cli "$(TEXT)"
+
+.PHONY: aws-deploy-ai deploy-ai
+aws-deploy-ai deploy-ai: ## Deploy Lab 6 AI stack (Lambda outside VPC, Bedrock IAM role, Function URL)
+	@echo "==> Deploying AI Agenda Parser stack ($(AI_STACK))..."
+	$(eval POOL_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text 2>/dev/null || echo "eu-north-1_2JHnz3607"))
+	$(eval CLIENT_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text 2>/dev/null || echo "520q7rcdd0c5hf0ahk2adb8bm3"))
 	aws cloudformation deploy \
-	  --template-file infra/reports.yml \
-	  --stack-name $(REPORTS_STACK) \
+	  --template-file infra/ai.yml \
+	  --stack-name $(AI_STACK) \
 	  --parameter-overrides \
 	    ProjectName=$(PROJECT) \
-	    VpcId=$(VPC_ID) \
-	    SubnetIds="$(SUBNET_1),$(SUBNET_2)" \
-	    SecurityGroupId=$(ECS_SG) \
-	    ReportsBucketName=$(REPORTS_BUCKET) \
-	    RecipientEmail="$(RECIPIENT_EMAIL)" \
+	    CognitoUserPoolId="$(POOL_ID)" \
+	    CognitoRegion=$(AWS_REGION) \
+	    CognitoClientId="$(CLIENT_ID)" \
+	    FrontendDomain="$(FRONTEND_DOMAIN)" \
 	    ImageUri="$(LAMBDA_IMAGE_URI)" \
-	    RouteTableIds="$(ROUTE_TABLE_ID)" \
+	    ParserModel="$(PARSER_MODEL)" \
+	    ParserRegion="$(PARSER_REGION)" \
 	  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
 	  --no-fail-on-empty-changeset \
 	  --region $(AWS_REGION)
-	@echo "==> Reports stack deployed successfully!"
-
-.PHONY: report-now
-report-now: ## Send on-demand report generation request to SQS (e.g. make report-now WEEK=2026-W40)
-	$(eval QUEUE_URL := $(shell aws cloudformation describe-stacks --stack-name $(REPORTS_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='ReportRequestsQueueUrl'].OutputValue" --output text))
-	@echo "==> Sending report request to SQS ($(QUEUE_URL)) for week '$(WEEK)'..."
-	aws sqs send-message --queue-url $(QUEUE_URL) --message-body "{\"week\":\"$(WEEK)\", \"source\":\"on-demand\"}" --region $(AWS_REGION)
-	@echo "==> Message successfully sent to SQS queue!"
+	@echo "==> AI Stack deployed successfully!"
+	@aws cloudformation describe-stacks --stack-name $(AI_STACK) --region $(AWS_REGION) \
+	  --query "Stacks[0].Outputs[?OutputKey=='AgendaParserFunctionUrl'].OutputValue" --output text
 
 ##@ Status
 
@@ -228,10 +239,10 @@ status: ## Show all resource IDs and endpoints
 	@echo "ECS Cluster:     $(ECS_CLUSTER)"
 	@echo "ECS Service:     $(ECS_SERVICE)"
 	@echo "ALB DNS:         meetings-alb-1279017703.eu-north-1.elb.amazonaws.com"
-	@echo "--- Reports (Lab 5) ---"
-	@echo "Reports Stack:   $(REPORTS_STACK)"
-	@echo "Reports Bucket:  $(REPORTS_BUCKET)"
-	@echo "Recipient Email: $(RECIPIENT_EMAIL)"
+	@echo "--- AI & Agenda Parser (Lab 6) ---"
+	@echo "AI Stack:        $(AI_STACK)"
+	@echo "Parser Model:    $(PARSER_MODEL)"
+	@echo "Bedrock Region:  $(PARSER_REGION)"
 	@echo "--- Security & CI/CD ---"
 	@echo "OIDC Role ARN:   arn:aws:iam::334177992228:role/github-actions-deploy-role"
 	@echo "ALB SG:          $(ALB_SG)"
@@ -244,10 +255,11 @@ status: ## Show all resource IDs and endpoints
 help: ## Show this help
 	@echo "Available make targets:"
 	@echo "  make aws-deploy-auth     - Deploy Cognito User Pool, Google IdP, Managed Login v2"
+	@echo "  make aws-deploy-ai       - Deploy Lab 6 Serverless Bedrock Agenda Parser stack"
+	@echo "  make llm-hello           - Smoke test Bedrock invocation in us-east-1"
+	@echo "  make parse TEXT=...      - Parse meeting text locally with Bedrock Claude model"
 	@echo "  make aws-deploy-frontend - Build frontend with Cognito config, sync to S3, invalidate CloudFront"
 	@echo "  make deploy-frontend     - Alias for aws-deploy-frontend"
 	@echo "  make deploy-backend      - Build Docker image, push to ECR, update ECS"
-	@echo "  make aws-deploy-reports  - Deploy Lab 5 Reports stack (S3, SQS, DLQ, Lambda, SES, Scheduler)"
-	@echo "  make report-now          - Request on-demand report generation via SQS (pass WEEK=...)"
-	@echo "  make deploy-all          - Run full deploy pipeline (auth -> frontend -> backend)"
+	@echo "  make deploy-all          - Run full deploy pipeline (auth -> ai -> frontend -> backend)"
 	@echo "  make status              - Show resource IDs and endpoints"

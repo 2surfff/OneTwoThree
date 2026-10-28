@@ -2,8 +2,10 @@ import { getIdToken, signOut } from "@/lib/auth"
 import type {
   Meeting,
   MeetingCreate,
+  ParsedAgenda,
   Participant,
   ParticipantCreate,
+  SaveAgendaRequest,
   User,
   ValidationIssue,
 } from "@/types"
@@ -33,6 +35,7 @@ function messageFrom(detail: unknown, status: number): string {
 // Backend origin, set at build time (the Lambda function URL on AWS). Empty = same origin,
 // where nginx (Docker Compose) or the Vite dev server proxies /api to the backend.
 const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "")
+const PARSER_URL = (import.meta.env.VITE_AGENDA_PARSER_URL ?? "").replace(/\/+$/, "")
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getIdToken()
@@ -76,6 +79,43 @@ export const api = {
   updateMeeting: ({ id, data }: { id: string; data: MeetingCreate }) =>
     request<Meeting>(`/meetings/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteMeeting: (id: string) => request<void>(`/meetings/${id}`, { method: "DELETE" }),
+
+  saveAgenda: ({ id, data }: { id: string; data: SaveAgendaRequest }) =>
+    request<Meeting>(`/meetings/${id}/agenda`, { method: "POST", body: JSON.stringify(data) }),
+
+  parseAgenda: async (
+    text: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<{ agenda: ParsedAgenda; model: string; prompt_version: string }> => {
+    const token = await getIdToken()
+    // Prefer direct Lambda Function URL if configured; otherwise use backend endpoint
+    const endpoint = PARSER_URL || `${API_URL}/api/meetings/parse-agenda`
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        text,
+        tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Kyiv",
+      }),
+      signal: options?.signal,
+    })
+
+    if (!response.ok) {
+      let detail = response.statusText
+      try {
+        const data = await response.json()
+        detail = data.error || data.detail || detail
+      } catch {
+        // non-json response
+      }
+      throw new Error(detail || `Parsing failed (${response.status})`)
+    }
+
+    return response.json()
+  },
 
   listParticipants: (q = "") =>
     request<Participant[]>(`/participants${q ? `?q=${encodeURIComponent(q)}` : ""}`),

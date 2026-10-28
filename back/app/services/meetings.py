@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Meeting, Participant, User
-from app.schemas import MeetingCreate
+from app.schemas import MeetingCreate, SaveAgendaRequest
 from app.services.errors import NotFoundError
 
 # Meetings are personal: every query is scoped to the owner's user ID.
@@ -38,7 +38,9 @@ def _load_participants(db: Session, participant_ids: list[UUID]) -> list[Partici
     participant_ids = list(dict.fromkeys(participant_ids))
     if not participant_ids:
         return []
-    participants = list(db.scalars(select(Participant).where(Participant.id.in_(participant_ids))))
+    participants = list(
+        db.scalars(select(Participant).where(Participant.id.in_(participant_ids)).order_by(Participant.name))
+    )
     missing = set(participant_ids) - {p.id for p in participants}
     if missing:
         ids = ", ".join(sorted(str(m) for m in missing))
@@ -54,6 +56,10 @@ def _apply(meeting: Meeting, data: MeetingCreate, participants: list[Participant
     meeting.starts_at = data.starts_at
     meeting.ends_at = data.ends_at
     meeting.participants = participants
+    if getattr(data, "agenda", None) is not None:
+        meeting.agenda = data.agenda
+    if getattr(data, "ai_suggestion", None) is not None:
+        meeting.ai_suggestion = data.ai_suggestion
 
 
 def create_meeting(db: Session, data: MeetingCreate, user: User) -> Meeting:
@@ -74,3 +80,11 @@ def update_meeting(db: Session, meeting_id: UUID, data: MeetingCreate, user: Use
 def delete_meeting(db: Session, meeting_id: UUID, user: User) -> None:
     db.delete(get_meeting(db, meeting_id, user))
     db.commit()
+
+
+def save_agenda(db: Session, meeting_id: UUID, data: SaveAgendaRequest, user: User) -> Meeting:
+    meeting = get_meeting(db, meeting_id, user)
+    meeting.agenda = data.agenda
+    meeting.ai_suggestion = data.ai_suggestion
+    db.commit()
+    return get_meeting(db, meeting.id, user)

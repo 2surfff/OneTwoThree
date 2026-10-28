@@ -1,14 +1,15 @@
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.db import get_db
 from app.models import User
-from app.schemas import MeetingCreate, MeetingRead, ParticipantRead
+from app.schemas import MeetingCreate, MeetingRead, ParticipantRead, SaveAgendaRequest
 from app.services import meetings as service
 from app.services.errors import NotFoundError
 
@@ -89,6 +90,8 @@ def create_meeting(
 ):
     try:
         return service.create_meeting(db, data, user)
+    except NotFoundError:
+        raise
     except Exception as exc:
         logger.warning("Database unavailable in create_meeting: %s", exc)
         return MeetingRead(
@@ -102,6 +105,8 @@ def create_meeting(
             owner_id=user.id if user else None,
             participants=[],
             created_at=datetime.now(UTC),
+            agenda=data.agenda,
+            ai_suggestion=data.ai_suggestion,
         )
 
 
@@ -129,7 +134,60 @@ def update_meeting(
             owner_id=user.id if user else None,
             participants=[],
             created_at=datetime.now(UTC),
+            agenda=data.agenda,
+            ai_suggestion=data.ai_suggestion,
         )
+
+
+@router.post("/{meeting_id}/agenda", response_model=MeetingRead)
+def save_meeting_agenda(
+    meeting_id: UUID,
+    data: SaveAgendaRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        return service.save_agenda(db, meeting_id, data, user)
+    except NotFoundError:
+        raise
+    except Exception as exc:
+        logger.warning("Database unavailable in save_meeting_agenda: %s", exc)
+        for m in get_mock_meetings(user.id if user else None):
+            if m.id == meeting_id:
+                m.agenda = data.agenda
+                m.ai_suggestion = data.ai_suggestion
+                return m
+        raise NotFoundError(f"Meeting {meeting_id} not found") from exc
+
+
+class ParseAgendaInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    text: str
+    tz: str = "Europe/Kyiv"
+    today: str | None = None
+
+
+@router.post("/parse-agenda")
+def parse_agenda_api(
+    data: ParseAgendaInput,
+    user: User = Depends(get_current_user),
+):
+    """Local / API fallback for agenda parsing (identical logic to the Lambda parser)."""
+    if len(data.text) > 10000:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Payload too large. Maximum text length is 10,000 characters.",
+        )
+    from app.ai.agenda import parse_agenda
+    from app.config import settings
+
+    today_date = date.fromisoformat(data.today) if data.today else date.today()
+    parsed_agenda, _usage = parse_agenda(text=data.text, today=today_date, tz=data.tz)
+    return {
+        "agenda": parsed_agenda.model_dump(mode="json"),
+        "model": settings.PARSER_MODEL,
+        "prompt_version": settings.prompt_version,
+    }
 
 
 @router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
