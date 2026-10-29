@@ -49,12 +49,21 @@ RECORD_AGENDA = {
     "input_schema": ParsedAgenda.model_json_schema(),
 }
 
-SYSTEM_PROMPT = (
-    "Extract meeting agenda into record_agenda. "
-    "Resolve relative dates/times to ISO-8601 starts_at using provided today date and timezone. "
-    "Preserve source language (uk, en). "
-    "Return title, starts_at, duration_minutes, items, action_items, language."
-)
+SYSTEM_PROMPT = """Extract meeting details from text into JSON matching schema.
+Schema:
+{
+  "title": "string or <UNKNOWN>",
+  "starts_at": "ISO-8601 string",
+  "duration_minutes": integer,
+  "items": ["string"],
+  "action_items": [{"task": "string", "assignee": "string or null"}],
+  "language": "uk" or "en"
+}
+Rules:
+- Do NOT invent facts.
+- Use <UNKNOWN> if missing.
+- Return ONLY valid JSON.
+"""
 
 
 def parse_agenda(
