@@ -1,4 +1,9 @@
+from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
+
+from app.ai.agenda import ParsedAgenda
+from app.config import settings
 
 
 def meeting_payload(**overrides) -> dict:
@@ -69,3 +74,51 @@ def test_save_meeting_agenda_endpoint(client: TestClient):
     assert get_res.status_code == 200
     assert get_res.json()["agenda"] == agenda_data
     assert get_res.json()["ai_suggestion"] == ai_suggestion_data
+
+
+def test_parse_agenda_via_external_lambda(client: TestClient):
+    mock_resp = MagicMock()
+    mock_resp.is_error = False
+    mock_resp.json.return_value = {
+        "agenda": {"title": "Team Sync", "duration_minutes": 30, "items": [], "action_items": []},
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "prompt_version": "agenda-v1",
+    }
+
+    with patch("httpx.Client.post", return_value=mock_resp) as mock_post:
+        res = client.post(
+            "/api/meetings/parse-agenda",
+            json={"text": "Team Sync tomorrow 10am", "tz": "Europe/Kyiv"},
+            headers={"Authorization": "Bearer test-token-123"},
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["agenda"]["title"] == "Team Sync"
+        mock_post.assert_called_once()
+        call_url, call_kwargs = mock_post.call_args
+        assert call_url[0] == settings.AGENDA_PARSER_URL
+        assert call_kwargs["json"] == {"text": "Team Sync tomorrow 10am", "tz": "Europe/Kyiv"}
+        assert call_kwargs["headers"] == {"Authorization": "Bearer test-token-123"}
+
+
+def test_parse_agenda_local_fallback(client: TestClient, monkeypatch):
+    monkeypatch.setattr(settings, "agenda_parser_url", "")
+    mock_parsed = ParsedAgenda(title="Local parsed title", duration_minutes=15)
+
+    with patch(
+        "app.ai.agenda.parse_agenda", return_value=(mock_parsed, {"input_tokens": 10, "output_tokens": 5})
+    ) as mock_parse:
+        res = client.post(
+            "/api/meetings/parse-agenda",
+            json={"text": "Quick sync 15 min", "tz": "Europe/Kyiv"},
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["agenda"]["title"] == "Local parsed title"
+        mock_parse.assert_called_once()
+
+
+def test_parse_agenda_payload_too_large(client: TestClient):
+    res = client.post(
+        "/api/meetings/parse-agenda",
+        json={"text": "A" * 10001, "tz": "Europe/Kyiv"},
+    )
+    assert res.status_code == 413

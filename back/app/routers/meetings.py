@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -169,17 +169,53 @@ class ParseAgendaInput(BaseModel):
 
 @router.post("/parse-agenda")
 def parse_agenda_api(
+    request: Request,
     data: ParseAgendaInput,
     user: User = Depends(get_current_user),
 ):
-    """Local / API fallback for agenda parsing (identical logic to the Lambda parser)."""
+    """Parse agenda via external Lambda Function URL if configured, or fall back to local parser."""
     if len(data.text) > 10000:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="Payload too large. Maximum text length is 10,000 characters.",
         )
-    from app.ai.agenda import parse_agenda
     from app.config import settings
+
+    parser_url = settings.AGENDA_PARSER_URL
+    if parser_url:
+        import httpx
+
+        headers: dict[str, str] = {}
+        auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+        if auth_header:
+            headers["Authorization"] = auth_header
+
+        payload = {"text": data.text, "tz": data.tz}
+        if data.today:
+            payload["today"] = data.today
+
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(parser_url, json=payload, headers=headers)
+
+            if resp.is_error:
+                detail = resp.text
+                try:
+                    err_json = resp.json()
+                    detail = err_json.get("error") or err_json.get("detail") or detail
+                except Exception:
+                    pass
+                raise HTTPException(status_code=resp.status_code, detail=detail)
+
+            return resp.json()
+        except httpx.RequestError as exc:
+            logger.error("Error connecting to Lambda parser at %s: %s", parser_url, exc)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Could not connect to external agenda parser: {exc}",
+            ) from exc
+
+    from app.ai.agenda import parse_agenda
 
     today_date = date.fromisoformat(data.today) if data.today else date.today()
     parsed_agenda, _usage = parse_agenda(text=data.text, today=today_date, tz=data.tz)

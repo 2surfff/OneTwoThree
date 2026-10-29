@@ -33,10 +33,15 @@ class Settings(BaseSettings):
     parser_model: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     parser_region: str = "us-east-1"
     prompt_version: str = "agenda-v1"
+    agenda_parser_url: str = "https://sxzrqrlktwmtlazdvtbasp7lim0txzlk.lambda-url.eu-north-1.on.aws/"
 
     @property
     def PARSER_MODEL(self) -> str:
         return self.parser_model
+
+    @property
+    def AGENDA_PARSER_URL(self) -> str:
+        return self.agenda_parser_url
 
     @property
     def sqlalchemy_url(self) -> URL:
