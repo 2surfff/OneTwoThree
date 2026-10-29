@@ -106,15 +106,25 @@ export const api = {
     if (!response.ok) {
       let detail = response.statusText
       try {
-        const data = await response.json()
-        detail = data.error || data.detail || detail
+        const textResp = await response.text()
+        try {
+          const data = JSON.parse(textResp)
+          detail = data.error || data.detail || detail
+        } catch {
+          if (textResp) detail = textResp
+        }
       } catch {
-        // non-json response
+        // non-text error
       }
       throw new Error(detail || `Parsing failed (${response.status})`)
     }
 
-    return response.json()
+    const raw = await response.text()
+    try {
+      return JSON.parse(raw)
+    } catch {
+      throw new Error(`Invalid response from parser: ${raw.slice(0, 200)}`)
+    }
   },
 
   listParticipants: (q = "") =>

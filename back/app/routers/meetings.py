@@ -182,14 +182,14 @@ def parse_agenda_api(
     from app.config import settings
 
     parser_url = settings.AGENDA_PARSER_URL
+    resp = None
     if parser_url:
         import httpx
 
-        headers: dict[str, str] = {}
-        auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
-        if auth_header:
-            headers["Authorization"] = auth_header
-
+        # Note: Do not forward Authorization header to Lambda Function URL with AuthType: NONE,
+        # because AWS evaluates any Authorization header as SigV4 and rejects non-AWS credentials with 403.
+        # Instead, send X-User-ID so the external parser knows the authenticated user.
+        headers = {"X-User-ID": str(user.id)}
         payload = {"text": data.text, "tz": data.tz}
         if data.today:
             payload["today"] = data.today
@@ -198,32 +198,46 @@ def parse_agenda_api(
             with httpx.Client(timeout=30.0) as client:
                 resp = client.post(parser_url, json=payload, headers=headers)
 
-            if resp.is_error:
-                detail = resp.text
+            if resp.status_code == 200:
                 try:
-                    err_json = resp.json()
-                    detail = err_json.get("error") or err_json.get("detail") or detail
-                except Exception:
-                    pass
-                raise HTTPException(status_code=resp.status_code, detail=detail)
-
-            return resp.json()
-        except httpx.RequestError as exc:
-            logger.error("Error connecting to Lambda parser at %s: %s", parser_url, exc)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Could not connect to external agenda parser: {exc}",
-            ) from exc
+                    return resp.json()
+                except Exception as json_err:
+                    logger.warning(
+                        "Lambda returned 200 but failed to parse JSON: %s. Response: %s",
+                        json_err,
+                        resp.text,
+                    )
+            else:
+                logger.warning(
+                    "Lambda parser returned status %s: %s. Attempting fallback.",
+                    resp.status_code,
+                    resp.text,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Error connecting to Lambda parser at %s: %s. Attempting fallback.",
+                parser_url,
+                exc,
+            )
 
     from app.ai.agenda import parse_agenda
 
     today_date = date.fromisoformat(data.today) if data.today else date.today()
-    parsed_agenda, _usage = parse_agenda(text=data.text, today=today_date, tz=data.tz)
-    return {
-        "agenda": parsed_agenda.model_dump(mode="json"),
-        "model": settings.PARSER_MODEL,
-        "prompt_version": settings.prompt_version,
-    }
+    try:
+        parsed_agenda, _usage = parse_agenda(text=data.text, today=today_date, tz=data.tz)
+        return {
+            "agenda": parsed_agenda.model_dump(mode="json"),
+            "model": settings.PARSER_MODEL,
+            "prompt_version": settings.prompt_version,
+        }
+    except Exception as exc:
+        logger.error("Local agenda parser failed: %s", exc, exc_info=True)
+        error_detail = (
+            f"Lambda error: {resp.text}"
+            if parser_url and resp is not None and resp.status_code != 200
+            else f"Agenda parsing failed: {exc}"
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_detail) from exc
 
 
 @router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)

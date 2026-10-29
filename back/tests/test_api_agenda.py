@@ -78,6 +78,7 @@ def test_save_meeting_agenda_endpoint(client: TestClient):
 
 def test_parse_agenda_via_external_lambda(client: TestClient):
     mock_resp = MagicMock()
+    mock_resp.status_code = 200
     mock_resp.is_error = False
     mock_resp.json.return_value = {
         "agenda": {"title": "Team Sync", "duration_minutes": 30, "items": [], "action_items": []},
@@ -97,7 +98,31 @@ def test_parse_agenda_via_external_lambda(client: TestClient):
         call_url, call_kwargs = mock_post.call_args
         assert call_url[0] == settings.AGENDA_PARSER_URL
         assert call_kwargs["json"] == {"text": "Team Sync tomorrow 10am", "tz": "Europe/Kyiv"}
-        assert call_kwargs["headers"] == {"Authorization": "Bearer test-token-123"}
+        # Ensure Authorization is NOT forwarded to Lambda Function URL to avoid SigV4 conflicts
+        assert "Authorization" not in call_kwargs.get("headers", {})
+        assert "X-User-ID" in call_kwargs.get("headers", {})
+
+
+def test_parse_agenda_lambda_failure_fallback_to_local(client: TestClient):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 500
+    mock_resp.text = "Lambda error"
+
+    mock_parsed = ParsedAgenda(title="Fallback parsed title", duration_minutes=20)
+
+    with (
+        patch("httpx.Client.post", return_value=mock_resp),
+        patch(
+            "app.ai.agenda.parse_agenda",
+            return_value=(mock_parsed, {"input_tokens": 10, "output_tokens": 5}),
+        ),
+    ):
+        res = client.post(
+            "/api/meetings/parse-agenda",
+            json={"text": "Fallback sync", "tz": "Europe/Kyiv"},
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["agenda"]["title"] == "Fallback parsed title"
 
 
 def test_parse_agenda_local_fallback(client: TestClient, monkeypatch):

@@ -126,6 +126,13 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:lambda-$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:lambda-latest
 
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name meetings-agenda-parser \
+            --image-uri ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:lambda-${{ github.sha }} \
+            --region ${{ env.AWS_REGION }} || true
+
       - name: Update ECS service (force new deployment)
         run: |
           aws ecs update-service \

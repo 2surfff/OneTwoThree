@@ -127,6 +127,13 @@ Resources:
       Principal: "*"
       FunctionUrlAuthType: NONE
 
+  AgendaParserFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AgendaParserFunction.Arn
+      Principal: "*"
+
 Outputs:
   AgendaParserFunctionUrl:
     Description: Direct HTTPS endpoint URL for the Agenda Parser Lambda
