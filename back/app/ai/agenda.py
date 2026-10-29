@@ -13,56 +13,48 @@ logger = logging.getLogger(__name__)
 class AgendaItem(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    title: str = Field(description="Title or topic of the agenda item")
-    duration_minutes: int | None = Field(default=None, description="Estimated duration in minutes")
-    description: str | None = Field(default=None, description="Details or discussion points")
+    title: str = Field(description="Agenda item title")
+    duration_minutes: int | None = Field(default=None, description="Duration in minutes")
+    description: str | None = Field(default=None, description="Discussion points")
 
 
 class ActionItem(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    task: str = Field(description="Action item description or task")
-    assignee: str | None = Field(default=None, description="Name or role of person responsible")
-    due_date: str | None = Field(default=None, description="Due date or timeframe if specified")
+    task: str = Field(description="Task description")
+    assignee: str | None = Field(default=None, description="Person responsible")
+    due_date: str | None = Field(default=None, description="Due date")
 
 
 class ParsedAgenda(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    title: str = Field(description="Clear and concise meeting title")
+    title: str = Field(description="Meeting title")
     starts_at: str | None = Field(
         default=None,
-        description="ISO-8601 formatted datetime with timezone (e.g. '2026-10-19T10:00:00+03:00')",
+        description="ISO-8601 datetime with timezone",
     )
-    duration_minutes: int | None = Field(
-        default=None, description="Total planned duration of the meeting in minutes"
-    )
-    items: list[AgendaItem] = Field(
-        default_factory=list, description="List of agenda discussion topics/items in order"
-    )
+    duration_minutes: int | None = Field(default=None, description="Duration in minutes")
+    items: list[AgendaItem] = Field(default_factory=list, description="Agenda topics")
     action_items: list[ActionItem] = Field(
         default_factory=list,
-        description="Follow-up action items, deliverables, and tasks with assignees if mentioned",
+        description="Action items and follow-ups",
     )
-    language: str = Field(default="uk", description="Dominant language of the agenda (e.g. 'uk', 'en')")
+    language: str = Field(default="uk", description="Dominant language (uk, en)")
 
 
 RECORD_AGENDA = {
     "name": "record_agenda",
-    "description": (
-        "Extract and record structured meeting title, start time, duration, agenda items, and action items."
-    ),
+    "description": "Extract structured meeting agenda.",
     "input_schema": ParsedAgenda.model_json_schema(),
 }
 
-SYSTEM_PROMPT = """You are an expert executive meeting assistant.
-Your task is to analyze raw meeting text, notes, email, or chat messages, and extract a structured agenda.
-Always call the record_agenda tool with the extracted data.
-Preserve the language of the source text (Ukrainian, English, etc.).
-If the text contains relative day/time references (such as 'Пн 10:00', 'завтра о 14:00', 'Friday at 3pm'),
-calculate the exact starts_at ISO-8601 string based on the provided today date and timezone.
-If duration is mentioned or implied, set duration_minutes.
-Extract individual agenda discussion items and any action items / follow-ups with assignees."""
+SYSTEM_PROMPT = (
+    "Extract meeting agenda into record_agenda. "
+    "Resolve relative dates/times to ISO-8601 starts_at using provided today date and timezone. "
+    "Preserve source language (uk, en). "
+    "Return title, starts_at, duration_minutes, items, action_items, language."
+)
 
 
 def parse_agenda(
@@ -95,7 +87,7 @@ def parse_agenda(
 
     response = client.messages.create(
         model=settings.PARSER_MODEL,
-        max_tokens=2048,
+        max_tokens=400,
         system=SYSTEM_PROMPT,
         messages=messages,
         tools=[RECORD_AGENDA],
@@ -138,7 +130,7 @@ def parse_agenda(
 
         retry_response = client.messages.create(
             model=settings.PARSER_MODEL,
-            max_tokens=2048,
+            max_tokens=400,
             system=SYSTEM_PROMPT,
             messages=retry_messages,
             tools=[RECORD_AGENDA],

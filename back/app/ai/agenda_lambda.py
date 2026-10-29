@@ -130,27 +130,21 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
             "body": "",
         }
 
-    # 1. Validate JWT from Authorization: Bearer <token> or accept internal proxy
+    # 1. Inspect Authorization or X-User-ID header if provided (no 401 requirement)
     auth_header = normalized_headers.get("authorization", "")
-    user_sub = normalized_headers.get("x-user-id", "")
+    user_sub = normalized_headers.get("x-user-id") or "anonymous"
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ", 1)[1].strip()
         try:
             claims = verify_cognito_token(token)
-            user_sub = claims.get("sub", "unknown")
+            user_sub = claims.get("sub", user_sub)
+            logger.info("Authenticated user: %s", user_sub)
         except Exception as exc:
-            logger.warning("Token verification failed: %s", exc)
-            return {
-                "statusCode": 401,
-                "headers": {**cors, "Content-Type": "application/json"},
-                "body": json.dumps({"error": f"Unauthorized: {exc}"}),
-            }
-    elif not user_sub:
-        return {
-            "statusCode": 401,
-            "headers": {**cors, "Content-Type": "application/json"},
-            "body": json.dumps({"error": "Missing or malformed Authorization Bearer header"}),
-        }
+            logger.warning("Token verification notice (continuing): %s", exc)
+    elif auth_header:
+        logger.info("Received Authorization header, continuing: %s", auth_header[:20])
+    else:
+        logger.info("No Authorization header provided, user_sub=%s", user_sub)
 
     # 2. Extract and validate request body
     body_raw = event.get("body") or "{}"

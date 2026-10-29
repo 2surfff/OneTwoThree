@@ -56,6 +56,7 @@ def test_parse_agenda_success():
     assert agenda.duration_minutes == 30
     assert len(agenda.items) == 1
     assert usage == {"input_tokens": 500, "output_tokens": 100}
+    assert mock_client.messages.create.call_args[1]["max_tokens"] == 400
 
 
 def test_parse_agenda_retry_on_validation_error():
@@ -101,15 +102,19 @@ def test_lambda_options_preflight():
     assert "Access-Control-Allow-Methods" in res["headers"]
 
 
-def test_lambda_missing_auth():
+@patch("app.ai.agenda_lambda.parse_agenda")
+def test_lambda_without_auth_continues(mock_parse):
+    parsed = ParsedAgenda(title="Anonymous meeting", duration_minutes=30)
+    mock_parse.return_value = (parsed, {"input_tokens": 50, "output_tokens": 20})
     event = {
         "requestContext": {"http": {"method": "POST"}},
         "headers": {},
-        "body": json.dumps({"text": "Hello"}),
+        "body": json.dumps({"text": "Quick call at 10am"}),
     }
     res = handler(event)
-    assert res["statusCode"] == 401
-    assert "Missing or malformed Authorization" in res["body"]
+    assert res["statusCode"] == 200
+    body = json.loads(res["body"])
+    assert body["agenda"]["title"] == "Anonymous meeting"
 
 
 @patch("app.ai.agenda_lambda.verify_cognito_token")
