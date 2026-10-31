@@ -62,32 +62,21 @@ TAG                   ?= $(shell git rev-parse --short HEAD)
 ##@ Auth Deployment
 
 .PHONY: aws-deploy-auth deploy-auth
-aws-deploy-auth deploy-auth: ## Deploy Cognito User Pool, Google IdP, Managed Login v2
-	@echo "==> Deploying Cognito Auth stack ($(AUTH_STACK))..."
-	aws cloudformation deploy \
-	  --template-file infra/auth.yml \
-	  --stack-name $(AUTH_STACK) \
-	  --parameter-overrides \
-	    ProjectName=$(PROJECT) \
-	    GoogleClientId="$(GOOGLE_CLIENT_ID)" \
-	    GoogleClientSecret="$(GOOGLE_CLIENT_SECRET)" \
-	    CognitoDomainPrefix="$(COGNITO_DOMAIN_PREFIX)" \
-	    FrontendDomain="$(FRONTEND_DOMAIN)" \
-	  --capabilities CAPABILITY_IAM \
-	  --no-fail-on-empty-changeset \
-	  --region $(AWS_REGION)
-	@echo "==> Cognito Auth stack deployed!"
+aws-deploy-auth deploy-auth: ## Deploy Cognito User Pool via Terraform
+	@echo "==> Deploying infrastructure via Terraform..."
+	cd infra && terraform apply -auto-approve
+	@echo "==> Infrastructure deployed!"
 
 ##@ Frontend Deployment
 
 .PHONY: aws-deploy-frontend deploy-frontend
 aws-deploy-frontend deploy-frontend: aws-deploy-auth ## Build frontend with Cognito config, sync to S3, invalidate CloudFront
-	@echo "==> Retrieving Cognito configuration from stack $(AUTH_STACK)..."
-	$(eval POOL_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text))
-	$(eval CLIENT_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text))
-	$(eval DOMAIN := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AuthDomain'].OutputValue" --output text))
-	$(eval AUTH_URL := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AuthorityUrl'].OutputValue" --output text))
-	$(eval PARSER_URL := $(shell aws cloudformation describe-stacks --stack-name $(AI_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='AgendaParserFunctionUrl'].OutputValue" --output text 2>/dev/null || echo ""))
+	@echo "==> Retrieving Cognito configuration from Terraform..."
+	$(eval POOL_ID := $(shell cd infra && terraform output -raw user_pool_id))
+	$(eval CLIENT_ID := $(shell cd infra && terraform output -raw user_pool_client_id))
+	$(eval DOMAIN := $(shell cd infra && terraform output -raw auth_domain 2>/dev/null || echo "anton-meetings-2026.auth.eu-north-1.amazoncognito.com"))
+	$(eval AUTH_URL := $(shell cd infra && terraform output -raw authority_url 2>/dev/null || echo "https://cognito-idp.eu-north-1.amazonaws.com/eu-north-1_2JHnz3607"))
+	$(eval PARSER_URL := $(shell cd infra && terraform output -raw parser_url 2>/dev/null || echo ""))
 	@echo "UserPoolId:   $(POOL_ID)"
 	@echo "ClientId:     $(CLIENT_ID)"
 	@echo "AuthDomain:   $(DOMAIN)"
@@ -196,28 +185,12 @@ parse: ## Parse unstructured meeting text using local agenda parser (e.g. make p
 	@cd back && uv run python -m app.ai.agenda_cli "$(TEXT)"
 
 .PHONY: aws-deploy-ai deploy-ai
-aws-deploy-ai deploy-ai: ## Deploy Lab 6 AI stack (Lambda outside VPC, Bedrock IAM role, Function URL)
-	@echo "==> Deploying AI Agenda Parser stack ($(AI_STACK))..."
-	$(eval POOL_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text 2>/dev/null || echo "eu-north-1_2JHnz3607"))
-	$(eval CLIENT_ID := $(shell aws cloudformation describe-stacks --stack-name $(AUTH_STACK) --region $(AWS_REGION) --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text 2>/dev/null || echo "520q7rcdd0c5hf0ahk2adb8bm3"))
-	aws cloudformation deploy \
-	  --template-file infra/ai.yml \
-	  --stack-name $(AI_STACK) \
-	  --parameter-overrides \
-	    ProjectName=$(PROJECT) \
-	    CognitoUserPoolId="$(POOL_ID)" \
-	    CognitoRegion=$(AWS_REGION) \
-	    CognitoClientId="$(CLIENT_ID)" \
-	    FrontendDomain="$(FRONTEND_DOMAIN)" \
-	    ImageUri="$(LAMBDA_IMAGE_URI)" \
-	    ParserModel="$(PARSER_MODEL)" \
-	    ParserRegion="$(PARSER_REGION)" \
-	  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-	  --no-fail-on-empty-changeset \
-	  --region $(AWS_REGION)
+aws-deploy-ai deploy-ai: ## Deploy Lab 6 AI stack via Terraform
+	@echo "==> Deploying AI Agenda Parser stack via Terraform..."
+	$(eval POOL_ID := $(shell cd infra && terraform output -raw user_pool_id))
+	$(eval CLIENT_ID := $(shell cd infra && terraform output -raw user_pool_client_id))
+	cd infra && terraform apply -auto-approve
 	@echo "==> AI Stack deployed successfully!"
-	@aws cloudformation describe-stacks --stack-name $(AI_STACK) --region $(AWS_REGION) \
-	  --query "Stacks[0].Outputs[?OutputKey=='AgendaParserFunctionUrl'].OutputValue" --output text
 
 ##@ Status
 
