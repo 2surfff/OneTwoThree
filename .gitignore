@@ -10,5 +10,11 @@ dist/
 .idea/
 .DS_Store
 
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+
 # AWS app-stack overrides (may hold account-specific values)
 infra/*.params.env
