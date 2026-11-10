@@ -1,0 +1,32 @@
+# Google Cloud Run Dockerfile for OneTwoThree / Spry FastAPI Backend
+# Note: Unlike AWS Lambda, Cloud Run natively invokes standard HTTP containers
+# on $PORT (default 8080) without AWS Lambda Web Adapter or Mangum.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080
+
+WORKDIR /app
+
+# Install system dependencies required by psycopg2 / PostgreSQL client
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast, deterministic dependency installation
+RUN pip install --no-cache-dir uv
+
+COPY pyproject.toml ./
+RUN uv pip install --system --no-cache -r pyproject.toml
+
+# Copy application code and Alembic migrations
+COPY alembic.ini ./
+COPY alembic ./alembic
+COPY app ./app
+
+EXPOSE 8080
+
+# Run Alembic schema migrations on startup and start Uvicorn listening on Cloud Run's $PORT
+CMD ["sh", "-c", "(alembic upgrade head || true) && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
