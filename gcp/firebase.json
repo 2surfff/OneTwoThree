@@ -1,6 +1,7 @@
 {
   "hosting": {
-    "public": "../front/dist",
+    "site": "spry-anton-2026",
+    "public": "dist",
     "ignore": [
       "firebase.json",
       "**/.*",

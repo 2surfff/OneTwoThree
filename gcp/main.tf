@@ -154,7 +154,7 @@ resource "google_secret_manager_secret" "database_url" {
 
 resource "google_secret_manager_secret_version" "database_url_v1" {
   secret      = google_secret_manager_secret.database_url.id
-  secret_data = "postgresql+psycopg2://${var.db_user}:${random_password.db_password.result}@/${var.db_name}?host=/cloudsql/${google_sql_database_instance.postgres.connection_name}"
+  secret_data = "postgresql+psycopg://${var.db_user}:${random_password.db_password.result}@/${var.db_name}?host=/cloudsql/${google_sql_database_instance.postgres.connection_name}"
 }
 
 # ---------------------------------------------------------------------------

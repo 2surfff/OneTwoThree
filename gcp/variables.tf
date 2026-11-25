@@ -1,7 +1,7 @@
 variable "project_id" {
   description = "Google Cloud Project ID"
   type        = string
-  default     = "spry-gcp-lab9"
+  default     = "spry-anton-2026"
 }
 
 variable "region" {
@@ -25,7 +25,7 @@ variable "environment" {
 variable "container_image" {
   description = "Full Docker image URI in Artifact Registry for Cloud Run backend"
   type        = string
-  default     = "us-central1-docker.pkg.dev/spry-gcp-lab9/spry-repo/backend:latest"
+  default     = "us-central1-docker.pkg.dev/spry-anton-2026/spry-repo/backend:latest"
 }
 
 variable "db_name" {
